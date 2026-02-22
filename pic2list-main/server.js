@@ -1,31 +1,57 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const pool = require('./db');
+const { requireAuth, loadUserConfig } = require('./middleware/auth');
+const authRoutes = require('./routes/auth');
+const configRoutes = require('./routes/config');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// ── Credentials from .env ──
-const EBAY_TOKEN = process.env.EBAY_TOKEN || '';
-const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID || '';
-const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET || '';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
+// ── Server-level keys (from .env) ──
 const GOOGLE_VISION_API_KEY = process.env.GOOGLE_VISION_API_KEY || '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 
-// ── Serve static files ──
+// ── Session middleware ──
+app.use(session({
+  store: new pgSession({ pool, tableName: 'session' }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+}));
+
+// ── Public routes (no auth) ──
+app.use('/api/auth', authRoutes);
+app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
+app.get('/signup.html', (req, res) => res.sendFile(path.join(__dirname, 'signup.html')));
+
+// ── Everything below requires auth ──
+app.use(requireAuth);
 app.use(express.static(path.join(__dirname)));
+
+// ── Config routes ──
+app.use('/api/config', configRoutes);
+
+// ── Load user config for all API routes ──
+app.use('/api', loadUserConfig);
 
 // ── eBay helpers ──
 const EBAY_API_URL = 'https://api.ebay.com/ws/api.dll';
 
-const ebayHeaders = (callName) => ({
+const ebayHeaders = (callName, token) => ({
   'X-EBAY-API-SITEID': '0',
   'X-EBAY-API-COMPATIBILITY-LEVEL': '1421',
-  'X-EBAY-API-IAF-TOKEN': EBAY_TOKEN,
+  'X-EBAY-API-IAF-TOKEN': token,
   'X-EBAY-API-CALL-NAME': callName,
 });
 
@@ -38,13 +64,14 @@ function escapeXml(str) {
     .replace(/'/g, '&apos;');
 }
 
-// ── eBay OAuth token cache ──
-let browseTokenCache = null;
+// ── eBay OAuth token cache (per user) ──
+const browseTokenCache = new Map();
 
-async function getEbayBrowseToken() {
-  if (browseTokenCache && Date.now() < browseTokenCache.expiry) return browseTokenCache.token;
+async function getEbayBrowseToken(userId, clientId, clientSecret) {
+  const cached = browseTokenCache.get(userId);
+  if (cached && Date.now() < cached.expiry) return cached.token;
 
-  const credentials = Buffer.from(`${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}`).toString('base64');
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   const resp = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
     method: 'POST',
     headers: {
@@ -57,16 +84,17 @@ async function getEbayBrowseToken() {
   if (!resp.ok || !data.access_token) {
     throw new Error(data.error_description || data.error || 'OAuth token request failed');
   }
-  browseTokenCache = {
+  browseTokenCache.set(userId, {
     token: data.access_token,
     expiry: Date.now() + (data.expires_in - 300) * 1000,
-  };
+  });
   return data.access_token;
 }
 
 // ── Test eBay token ──
 app.get('/api/ebay/test-token', async (req, res) => {
-  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+  const token = req.userConfig.ebayToken;
+  if (!token) return res.json({ success: false, error: 'eBay token not configured. Go to Settings.' });
 
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
@@ -78,7 +106,7 @@ app.get('/api/ebay/test-token', async (req, res) => {
   try {
     const response = await fetch(EBAY_API_URL, {
       method: 'POST',
-      headers: { ...ebayHeaders('GetUser'), 'Content-Type': 'text/xml' },
+      headers: { ...ebayHeaders('GetUser', token), 'Content-Type': 'text/xml' },
       body: xml,
     });
     const text = await response.text();
@@ -98,7 +126,8 @@ app.get('/api/ebay/test-token', async (req, res) => {
 
 // ── Upload image to eBay ──
 app.post('/api/ebay/upload-image', async (req, res) => {
-  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+  const token = req.userConfig.ebayToken;
+  if (!token) return res.json({ success: false, error: 'eBay token not configured. Go to Settings.' });
 
   const { base64, filename, mimeType } = req.body;
   const imageBuffer = Buffer.from(base64, 'base64');
@@ -132,7 +161,7 @@ app.post('/api/ebay/upload-image', async (req, res) => {
     const response = await fetch(EBAY_API_URL, {
       method: 'POST',
       headers: {
-        ...ebayHeaders('UploadSiteHostedPictures'),
+        ...ebayHeaders('UploadSiteHostedPictures', token),
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
       },
       body,
@@ -187,16 +216,16 @@ app.get('/api/ebay/policies', (req, res) => {
 
 // ── Add item listing ──
 app.post('/api/ebay/add-item', async (req, res) => {
-  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+  const token = req.userConfig.ebayToken;
+  if (!token) return res.json({ success: false, error: 'eBay token not configured. Go to Settings.' });
 
   const {
     title, description, price, categoryId,
     conditionId, pictureUrls, quantity, location,
     sku, itemSpecifics, shippingPolicyId, returnPolicyId,
-    bestOfferEnabled, autoAcceptPrice, minBestOfferPrice, autoPay,
   } = req.body;
 
-  // Validate category via Trading API GetCategories
+  // Validate category via Trading API GetCategories (checks leaf + expired remapping)
   let validCategoryId = categoryId;
   try {
     const catXml = [
@@ -212,7 +241,7 @@ app.post('/api/ebay/add-item', async (req, res) => {
     ].join('\n');
     const catResp = await fetch(EBAY_API_URL, {
       method: 'POST',
-      headers: { ...ebayHeaders('GetCategories'), 'Content-Type': 'text/xml' },
+      headers: { ...ebayHeaders('GetCategories', token), 'Content-Type': 'text/xml' },
       body: catXml,
     });
     const catText = await catResp.text();
@@ -220,7 +249,9 @@ app.post('/api/ebay/add-item', async (req, res) => {
     const expiredMatch = catText.match(/<Expired>true<\/Expired>/);
 
     if (expiredMatch) {
+      // Category is expired — try to find the replacement
       const catIdMatches = [...catText.matchAll(/<CategoryID>([^<]+)<\/CategoryID>/g)];
+      // GetCategories may return the parent or mapped category
       const newCatId = catIdMatches.length > 1 ? catIdMatches[catIdMatches.length - 1][1] : null;
       if (newCatId && newCatId !== categoryId) {
         validCategoryId = newCatId;
@@ -251,6 +282,7 @@ app.post('/api/ebay/add-item', async (req, res) => {
   const shipId = shippingPolicyId || SELLER_POLICIES.shipping[0].id;
   const payId = SELLER_POLICIES.payment;
 
+  // Resolve return policy to inline details (bypasses deprecated returnDescription in profiles)
   const retPolicy = SELLER_POLICIES.returnPolicies.find(r => r.id === returnPolicyId)
     || SELLER_POLICIES.returnPolicies.find(r => r.default)
     || SELLER_POLICIES.returnPolicies[0];
@@ -284,16 +316,6 @@ app.post('/api/ebay/add-item', async (req, res) => {
     '    <ListingDuration>GTC</ListingDuration>',
     '    <ListingType>FixedPriceItem</ListingType>',
     `    <Quantity>${parseInt(quantity) || 1}</Quantity>`,
-    autoPay !== false ? '    <AutoPay>true</AutoPay>' : null,
-    bestOfferEnabled ? '    <BestOfferDetails>' : null,
-    bestOfferEnabled ? '      <BestOfferEnabled>true</BestOfferEnabled>' : null,
-    bestOfferEnabled ? '    </BestOfferDetails>' : null,
-    (bestOfferEnabled && (parseFloat(autoAcceptPrice) > 0 || parseFloat(minBestOfferPrice) > 0)) ? '    <ListingDetails>' : null,
-    (bestOfferEnabled && parseFloat(autoAcceptPrice) > 0)
-      ? `      <BestOfferAutoAcceptPrice currencyID="USD">${parseFloat(autoAcceptPrice).toFixed(2)}</BestOfferAutoAcceptPrice>` : null,
-    (bestOfferEnabled && parseFloat(minBestOfferPrice) > 0)
-      ? `      <MinimumBestOfferPrice currencyID="USD">${parseFloat(minBestOfferPrice).toFixed(2)}</MinimumBestOfferPrice>` : null,
-    (bestOfferEnabled && (parseFloat(autoAcceptPrice) > 0 || parseFloat(minBestOfferPrice) > 0)) ? '    </ListingDetails>' : null,
     '    <PictureDetails>',
     pictureUrlsXml,
     '    </PictureDetails>',
@@ -315,7 +337,7 @@ app.post('/api/ebay/add-item', async (req, res) => {
     const response = await fetch(EBAY_API_URL, {
       method: 'POST',
       headers: {
-        ...ebayHeaders('AddItem'),
+        ...ebayHeaders('AddItem', token),
         'Content-Type': 'text/xml',
       },
       body: xml,
@@ -349,6 +371,26 @@ app.post('/api/ebay/add-item', async (req, res) => {
   }
 });
 
+// ── Google Vision proxy ──
+app.post('/api/vision/annotate', async (req, res) => {
+  if (!GOOGLE_VISION_API_KEY) return res.status(400).json({ error: { message: 'Google Vision API key not configured in .env' } });
+  const visionKey = GOOGLE_VISION_API_KEY;
+
+  const { requests } = req.body;
+  try {
+    const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${visionKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return res.status(resp.status).json(data);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
 // ── OpenRouter (Gemini) — identify & group products from images ──
 app.post('/api/openrouter/identify', async (req, res) => {
   if (!OPENROUTER_API_KEY) return res.status(400).json({ error: { message: 'OpenRouter API key not configured in .env' } });
@@ -356,7 +398,7 @@ app.post('/api/openrouter/identify', async (req, res) => {
   const { images } = req.body; // array of base64 strings
   if (!images || images.length === 0) return res.status(400).json({ error: { message: 'No images provided' } });
 
-  const imageContent = images.map((b64) => ({
+  const imageContent = images.map((b64, i) => ({
     type: 'image_url',
     image_url: { url: `data:image/jpeg;base64,${b64}` }
   }));
@@ -414,6 +456,8 @@ Rules:
 // ── OpenAI proxy ──
 app.post('/api/openai/chat', async (req, res) => {
   if (!OPENAI_API_KEY) return res.status(400).json({ error: { message: 'OpenAI API key not configured in .env' } });
+  const apiKey = OPENAI_API_KEY;
+  const model = OPENAI_MODEL;
 
   const { messages, temperature, max_completion_tokens } = req.body;
   try {
@@ -421,10 +465,10 @@ app.post('/api/openai/chat', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model,
         messages,
         temperature: temperature ?? 0.7,
         max_completion_tokens: max_completion_tokens ?? 4000,
@@ -438,65 +482,16 @@ app.post('/api/openai/chat', async (req, res) => {
   }
 });
 
-// ── Claude (Anthropic) proxy ──
-app.post('/api/claude/chat', async (req, res) => {
-  if (!ANTHROPIC_API_KEY) return res.status(400).json({ error: { message: 'Anthropic API key not configured in .env' } });
-
-  const { messages, temperature, max_tokens } = req.body;
-
-  // Convert OpenAI-style messages to Anthropic format
-  let systemPrompt = '';
-  const anthropicMessages = [];
-  for (const msg of messages) {
-    if (msg.role === 'system') {
-      systemPrompt = msg.content;
-    } else {
-      anthropicMessages.push({ role: msg.role, content: msg.content });
-    }
-  }
-
-  try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: max_tokens ?? 4096,
-        ...(systemPrompt ? { system: systemPrompt } : {}),
-        messages: anthropicMessages,
-        temperature: temperature ?? 0.7,
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) return res.status(resp.status).json({ error: { message: data.error?.message || JSON.stringify(data) } });
-
-    // Normalize to OpenAI-compatible shape so frontend code stays the same
-    res.json({
-      choices: [{
-        message: {
-          role: 'assistant',
-          content: data.content?.[0]?.text || '',
-        },
-      }],
-    });
-  } catch (err) {
-    res.status(500).json({ error: { message: err.message } });
-  }
-});
-
 // ── Item aspects for a category via Taxonomy API ──
 app.get('/api/ebay/item-aspects', async (req, res) => {
-  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+  const { ebayClientId, ebayClientSecret } = req.userConfig;
+  if (!ebayClientId || !ebayClientSecret) return res.json({ success: false, error: 'eBay OAuth credentials not configured. Go to Settings.' });
 
   const { category_id } = req.query;
   if (!category_id) return res.json({ success: false, error: 'Missing category_id' });
 
   try {
-    const token = await getEbayBrowseToken();
+    const token = await getEbayBrowseToken(req.session.userId, ebayClientId, ebayClientSecret);
     const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id=${encodeURIComponent(category_id)}`;
 
     const resp = await fetch(url, {
@@ -523,13 +518,14 @@ app.get('/api/ebay/item-aspects', async (req, res) => {
 
 // ── Category suggestions via Taxonomy API ──
 app.get('/api/ebay/category-suggestions', async (req, res) => {
-  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+  const { ebayClientId, ebayClientSecret } = req.userConfig;
+  if (!ebayClientId || !ebayClientSecret) return res.json({ success: false, error: 'eBay OAuth credentials not configured. Go to Settings.' });
 
   const { q } = req.query;
   if (!q) return res.json({ success: false, error: 'Missing search query (q)' });
 
   try {
-    const token = await getEbayBrowseToken();
+    const token = await getEbayBrowseToken(req.session.userId, ebayClientId, ebayClientSecret);
     const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q=${encodeURIComponent(q)}`;
 
     const resp = await fetch(url, {
@@ -557,13 +553,14 @@ app.get('/api/ebay/category-suggestions', async (req, res) => {
 
 // ── Price range lookup via Browse API ──
 app.get('/api/ebay/price-range', async (req, res) => {
-  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+  const { ebayClientId, ebayClientSecret } = req.userConfig;
+  if (!ebayClientId || !ebayClientSecret) return res.json({ success: false, error: 'eBay OAuth credentials not configured. Go to Settings.' });
 
   const { q, category_id } = req.query;
   if (!q) return res.json({ success: false, error: 'Missing search query (q)' });
 
   try {
-    const token = await getEbayBrowseToken();
+    const token = await getEbayBrowseToken(req.session.userId, ebayClientId, ebayClientSecret);
 
     let url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&filter=priceCurrency:USD&sort=price&limit=200`;
     if (category_id) url += `&category_ids=${encodeURIComponent(category_id)}`;
@@ -615,5 +612,5 @@ app.get('/api/ebay/price-range', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n  ListIQ running at http://localhost:${PORT}\n`);
+  console.log(`\n  Pic2List running at http://localhost:${PORT}\n`);
 });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ListIQ</title>
+  <title>pic2list</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -31,33 +31,41 @@
 
     .container { max-width: 1300px; margin: 0 auto; padding: 32px; }
 
-    /* ══════════════════════════════════════
-       Product Input Form
-       ══════════════════════════════════════ */
-    .input-section {
-      background: #fff; border-radius: 16px; padding: 32px;
-      border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-      margin-bottom: 32px;
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #cbd5e1; border-radius: 16px; padding: 56px 48px;
+      text-align: center; cursor: pointer; transition: all 0.2s;
+      background: #fff;
     }
-    .input-section h2 {
-      font-size: 18px; font-weight: 700; color: #1a1a2e; margin-bottom: 20px;
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #4f6ef7; background: #f0f3ff;
     }
-    .input-form {
-      display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+    .drop-zone h2 { font-size: 18px; font-weight: 600; color: #3a3f5c; margin-bottom: 8px; }
+    .drop-zone p { font-size: 13px; color: #8b8fa3; }
+    .drop-zone input { display: none; }
+
+    /* Image grid */
+    .image-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px; margin-top: 24px;
     }
-    .input-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 200px; }
-    .input-field label {
-      font-size: 11px; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 0.5px; color: #8b8fa3;
+    .image-card {
+      position: relative; border-radius: 10px; overflow: hidden;
+      background: #e9ecef; aspect-ratio: 1;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    .input-field input {
-      padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 10px;
-      font-size: 14px; outline: none; transition: border-color 0.15s;
-      background: #fff; color: #1a1a2e;
+    .image-card img { width: 100%; height: 100%; object-fit: cover; }
+    .image-card .remove-btn {
+      position: absolute; top: 6px; right: 6px; width: 24px; height: 24px;
+      background: rgba(0,0,0,0.55); border: none; border-radius: 50%;
+      color: #fff; font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.15s;
     }
-    .input-field input:focus { border-color: #4f6ef7; }
+    .image-card:hover .remove-btn { opacity: 1; }
 
     /* Buttons */
+    .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; }
     .btn {
       padding: 10px 24px; border: none; border-radius: 10px;
       font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s;
@@ -77,7 +85,7 @@
     .btn-sm { padding: 7px 16px; font-size: 12px; }
     .btn-xs { padding: 5px 12px; font-size: 11px; border-radius: 8px; }
 
-    .status-text { font-size: 13px; color: #8b8fa3; margin-top: 12px; }
+    .status-text { font-size: 13px; color: #8b8fa3; }
     .spinner {
       display: inline-block; width: 16px; height: 16px;
       border: 2px solid #d1d5db; border-top-color: #4f6ef7; border-radius: 50%;
@@ -123,6 +131,15 @@
     /* Row states */
     .product-table tbody tr.row-rejected { opacity: 0.35; }
     .product-table tbody tr.row-listed { background: #f0fdf4; }
+
+    /* Images cell */
+    .cell-images { display: flex; gap: 4px; flex-wrap: wrap; max-width: 160px; }
+    .cell-thumb {
+      width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+      background: #f0f1f3; border: 1px solid #e5e7eb; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .cell-thumb:hover { border-color: #4f6ef7; }
 
     /* Product info cell */
     .cell-product-title {
@@ -216,12 +233,6 @@
     .badge-listing { background: #fef3c7; color: #b45309; }
     .badge-listed { background: #22c55e; color: #fff; }
     .badge-rejected { background: #fee2e2; color: #dc2626; }
-    .badge-verifying { background: #f3e8ff; color: #7c3aed; }
-
-    /* Claude button */
-    .btn-claude { background: #7c3aed; color: #fff; }
-    .btn-claude:hover { background: #6d28d9; }
-    .btn-claude:disabled { background: #ddd6fe; color: #a78bfa; cursor: not-allowed; transform: none; }
 
     /* Actions cell */
     .cell-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
@@ -272,7 +283,6 @@
     .modal-images {
       display: flex; gap: 8px; overflow-x: auto;
       padding-bottom: 8px; margin-bottom: 16px;
-      align-items: center; flex-wrap: wrap;
     }
     .modal-images::-webkit-scrollbar { height: 5px; }
     .modal-images::-webkit-scrollbar-track { background: transparent; }
@@ -280,29 +290,9 @@
     .modal-thumb {
       width: 80px; height: 80px; border-radius: 10px; object-fit: cover;
       flex-shrink: 0; background: #f0f1f3; border: 2px solid transparent;
-      cursor: pointer; transition: border-color 0.15s; position: relative;
+      cursor: pointer; transition: border-color 0.15s;
     }
     .modal-thumb:hover { border-color: #4f6ef7; }
-    .modal-thumb-wrap {
-      position: relative; display: inline-block; flex-shrink: 0;
-    }
-    .modal-thumb-remove {
-      position: absolute; top: -4px; right: -4px; width: 20px; height: 20px;
-      background: #ef4444; border: 2px solid #fff; border-radius: 50%;
-      color: #fff; font-size: 12px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      opacity: 0; transition: opacity 0.15s; line-height: 1;
-    }
-    .modal-thumb-wrap:hover .modal-thumb-remove { opacity: 1; }
-    .modal-add-photo {
-      width: 80px; height: 80px; border-radius: 10px;
-      border: 2px dashed #cbd5e1; background: #f8f9fb;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      cursor: pointer; transition: all 0.15s; flex-shrink: 0;
-      font-size: 11px; color: #8b8fa3; gap: 2px;
-    }
-    .modal-add-photo:hover { border-color: #4f6ef7; background: #eef1ff; color: #4f6ef7; }
-    .modal-add-photo .plus { font-size: 22px; line-height: 1; }
 
     /* Modal: Title block */
     .modal-title-block {
@@ -421,44 +411,6 @@
       grid-column: 1 / -1; font-size: 12px; color: #8b8fa3; padding: 8px 0;
     }
 
-    /* Offers & Promotions section */
-    .offers-section {
-      grid-column: 1 / -1;
-      margin-top: 8px;
-    }
-    .offers-section-title {
-      font-size: 11px; font-weight: 700; color: #4f6ef7; text-transform: uppercase;
-      letter-spacing: 0.5px; margin: 0 0 12px; padding-bottom: 6px;
-      border-bottom: 1px solid #eef1ff;
-    }
-    .offers-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px;
-    }
-    .offer-toggle {
-      display: flex; align-items: center; gap: 10px;
-    }
-    .offer-toggle label {
-      font-size: 13px; font-weight: 500; color: #1a1a2e; cursor: pointer;
-      display: flex; align-items: center; gap: 8px;
-    }
-    .offer-toggle input[type="checkbox"] {
-      width: 16px; height: 16px; accent-color: #4f6ef7; cursor: pointer;
-    }
-    .offer-sub-fields {
-      grid-column: 1 / -1;
-      display: none; gap: 12px 20px;
-      grid-template-columns: 1fr 1fr;
-      margin-top: 4px;
-      padding: 12px; background: #f8f9fb; border-radius: 10px; border: 1px solid #e5e7eb;
-    }
-    .offer-sub-fields.open { display: grid; }
-    .offer-sub-fields .modal-field label {
-      font-size: 11px; color: #8b8fa3;
-    }
-    .offer-hint {
-      font-size: 11px; color: #8b8fa3; margin-top: 2px;
-    }
-
     /* Modal: Footer actions */
     .modal-footer {
       padding: 14px 24px; border-top: 1px solid #e5e7eb;
@@ -468,146 +420,43 @@
     .modal-status { font-size: 12px; color: #8b8fa3; }
     .modal-status a { color: #4f6ef7; text-decoration: none; }
 
-    /* ══════════════════════════════════════
-       Vision Toggle & Image Upload
-       ══════════════════════════════════════ */
-    .vision-toggle-row {
-      display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
-      padding-bottom: 16px; border-bottom: 1px solid #e5e7eb;
-    }
-    .vision-toggle-row label {
-      font-size: 13px; font-weight: 600; color: #1a1a2e; cursor: pointer;
-      display: flex; align-items: center; gap: 10px;
-    }
-    .toggle-switch {
-      position: relative; width: 44px; height: 24px; flex-shrink: 0;
-    }
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .toggle-slider {
-      position: absolute; inset: 0; background: #d1d5db; border-radius: 24px;
-      cursor: pointer; transition: background 0.2s;
-    }
-    .toggle-slider::before {
-      content: ''; position: absolute; left: 3px; top: 3px;
-      width: 18px; height: 18px; background: #fff; border-radius: 50%;
-      transition: transform 0.2s;
-    }
-    .toggle-switch input:checked + .toggle-slider { background: #4f6ef7; }
-    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
-    .vision-badge {
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.5px; padding: 3px 8px; border-radius: 6px;
-      background: #eef1ff; color: #4f6ef7;
-    }
-
-    .vision-upload-area { display: none; margin-top: 16px; }
-    .vision-upload-area.active { display: block; }
-    .vision-dropzone {
-      border: 2px dashed #cbd5e1; border-radius: 14px; padding: 40px 24px;
-      text-align: center; cursor: pointer; transition: all 0.2s;
-      background: #f8f9fb; margin-bottom: 16px;
-    }
-    .vision-dropzone:hover, .vision-dropzone.dragover {
-      border-color: #4f6ef7; background: #eef1ff;
-    }
-    .vision-dropzone-icon { font-size: 36px; color: #8b8fa3; margin-bottom: 8px; }
-    .vision-dropzone-text { font-size: 14px; font-weight: 600; color: #555b6e; margin-bottom: 4px; }
-    .vision-dropzone-hint { font-size: 12px; color: #8b8fa3; }
-
-    .vision-image-grid {
-      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;
-    }
-    .vision-thumb-wrap {
-      position: relative; display: inline-block;
-    }
-    .vision-thumb {
-      width: 90px; height: 90px; border-radius: 10px; object-fit: cover;
-      border: 2px solid #e5e7eb; background: #f0f1f3;
-    }
-    .vision-thumb-remove {
-      position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
-      background: #ef4444; border: 2px solid #fff; border-radius: 50%;
-      color: #fff; font-size: 13px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      opacity: 0; transition: opacity 0.15s; line-height: 1;
-    }
-    .vision-thumb-wrap:hover .vision-thumb-remove { opacity: 1; }
-
-    .vision-actions {
-      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-    }
-
     @media (max-width: 900px) {
       .container { padding: 16px; }
       .product-table thead { display: none; }
       .product-table tbody tr { display: flex; flex-wrap: wrap; padding: 12px; gap: 10px; border-bottom: 1px solid #e5e7eb; }
       .product-table tbody td { padding: 0; }
       .modal-fields { grid-template-columns: 1fr; }
-      .input-form { flex-direction: column; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>ListIQ</h1>
-    <span>Enter product info, generate listings, publish to eBay</span>
+    <h1>pic2list</h1>
+    <span>Upload photos, identify products, list on eBay</span>
+    <nav style="margin-left:auto; display:flex; gap:16px; align-items:center;">
+      <a href="/config.html" style="font-size:13px; color:#4f6ef7; text-decoration:none; font-weight:600;">Settings</a>
+      <button class="btn btn-secondary btn-xs" id="logoutBtn" style="font-size:12px;">Log Out</button>
+    </nav>
   </header>
 
   <div class="container">
-    <!-- Product Input Form -->
-    <div class="input-section">
-      <h2>Add Product</h2>
-
-      <!-- Vision Toggle -->
-      <div class="vision-toggle-row">
-        <label>
-          <span class="toggle-switch">
-            <input type="checkbox" id="visionToggle">
-            <span class="toggle-slider"></span>
-          </span>
-          Switch to Google Vision AI
-        </label>
-        <span class="vision-badge" id="visionBadge" style="display:none;">Vision Mode</span>
-      </div>
-
-      <!-- Manual input (default) -->
-      <div id="manualInputArea">
-        <div class="input-form">
-          <div class="input-field">
-            <label>Brand <span style="color:#ef4444;">*</span></label>
-            <input type="text" id="brandInput" placeholder="e.g. Cisco, Dell, Apple" autocomplete="off">
-          </div>
-          <div class="input-field">
-            <label>Manufacturer Part Number (MPN) <span style="color:#ef4444;">*</span></label>
-            <input type="text" id="mpnInput" placeholder="e.g. SG350-28P, A2338" autocomplete="off">
-          </div>
-          <button class="btn btn-primary" id="addProductBtn">Add Product</button>
-        </div>
-      </div>
-
-      <!-- Vision image upload -->
-      <div class="vision-upload-area" id="visionUploadArea">
-        <div class="vision-dropzone" id="visionDropzone">
-          <div class="vision-dropzone-icon">&#128247;</div>
-          <div class="vision-dropzone-text">Drop product images here or click to browse</div>
-          <div class="vision-dropzone-hint">Upload one or more images of the product. Vision AI will identify the brand and item.</div>
-        </div>
-        <input type="file" id="visionFileInput" accept="image/*" multiple style="display:none;">
-        <div class="vision-image-grid" id="visionImageGrid"></div>
-        <div class="vision-actions">
-          <button class="btn btn-primary" id="visionFindBtn" disabled>Find Item</button>
-          <button class="btn btn-secondary btn-sm" id="visionClearBtn" style="display:none;">Clear All</button>
-          <span class="status-text" id="visionStatus"></span>
-        </div>
-      </div>
-
-      <div class="status-text" id="statusText"></div>
+    <div class="drop-zone" id="dropZone">
+      <h2>Drop images here or click to browse</h2>
+      <p>Upload multiple photos — they'll be grouped by product automatically</p>
+      <input type="file" id="fileInput" accept="image/*" multiple>
     </div>
 
-    <!-- Results -->
+    <div class="image-grid" id="imageGrid"></div>
+
+    <div class="actions" id="actions" style="display:none;">
+      <button class="btn btn-primary" id="submitBtn">Identify &amp; Group Products</button>
+      <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+      <span class="status-text" id="statusText"></span>
+    </div>
+
     <div class="results-section" id="resultsSection" style="display:none;">
       <div class="results-toolbar">
-        <h2 id="resultsHeading">Products</h2>
+        <h2 id="resultsHeading">Identified Products</h2>
         <div class="results-toolbar-actions">
           <button class="btn btn-green btn-sm" id="generateAllBtn" style="display:none;">Generate All</button>
           <button class="btn btn-primary btn-sm" id="listAllBtn" style="display:none;">Publish All</button>
@@ -616,6 +465,7 @@
       <table class="product-table" id="productTable">
         <thead>
           <tr>
+            <th>Images</th>
             <th>Product</th>
             <th>Price</th>
             <th>SKU</th>
@@ -642,12 +492,39 @@
   </div>
 
   <script>
-    const OPENAI_URL = '/api/openai/chat';
-    const CLAUDE_URL = '/api/claude/chat';
+    // Auth check — redirect to login if not authenticated
+    (async () => {
+      try {
+        const resp = await fetch('/api/auth/me');
+        const data = await resp.json();
+        if (!data.authenticated) window.location.href = '/login.html';
+      } catch { window.location.href = '/login.html'; }
+    })();
 
-    const brandInput = document.getElementById('brandInput');
-    const mpnInput = document.getElementById('mpnInput');
-    const addProductBtn = document.getElementById('addProductBtn');
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    }
+
+    // Wrap fetch to handle 401 → redirect
+    async function apiFetch(url, options = {}) {
+      const resp = await fetch(url, options);
+      if (resp.status === 401) {
+        window.location.href = '/login.html';
+        throw new Error('Session expired');
+      }
+      return resp;
+    }
+
+    const VISION_URL = '/api/vision/annotate';
+    const OPENAI_URL = '/api/openai/chat';
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const imageGrid = document.getElementById('imageGrid');
+    const actions = document.getElementById('actions');
+    const submitBtn = document.getElementById('submitBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const statusText = document.getElementById('statusText');
     const resultsSection = document.getElementById('resultsSection');
     const resultsHeading = document.getElementById('resultsHeading');
@@ -659,346 +536,214 @@
     const modalBody = document.getElementById('modalBody');
     const modalFooter = document.getElementById('modalFooter');
 
-    let products = [];
+    let imageFiles = [];
+    let clusterData = [];
     let currentModalIndex = -1;
 
     // ═══════════════════════════════════════
-    //  Vision Mode Toggle & Image Upload
+    //  Drop zone
     // ═══════════════════════════════════════
-    const visionToggle = document.getElementById('visionToggle');
-    const visionBadge = document.getElementById('visionBadge');
-    const manualInputArea = document.getElementById('manualInputArea');
-    const visionUploadArea = document.getElementById('visionUploadArea');
-    const visionDropzone = document.getElementById('visionDropzone');
-    const visionFileInput = document.getElementById('visionFileInput');
-    const visionImageGrid = document.getElementById('visionImageGrid');
-    const visionFindBtn = document.getElementById('visionFindBtn');
-    const visionClearBtn = document.getElementById('visionClearBtn');
-    const visionStatus = document.getElementById('visionStatus');
-
-    let visionImages = []; // { file, dataUrl, base64 }
-
-    visionToggle.addEventListener('change', () => {
-      const on = visionToggle.checked;
-      manualInputArea.style.display = on ? 'none' : 'block';
-      visionUploadArea.classList.toggle('active', on);
-      visionBadge.style.display = on ? 'inline-block' : 'none';
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault(); dropZone.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
     });
+    fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
 
-    // Dropzone events
-    visionDropzone.addEventListener('click', () => visionFileInput.click());
-    visionDropzone.addEventListener('dragover', (e) => { e.preventDefault(); visionDropzone.classList.add('dragover'); });
-    visionDropzone.addEventListener('dragleave', () => visionDropzone.classList.remove('dragover'));
-    visionDropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      visionDropzone.classList.remove('dragover');
-      handleVisionFiles(e.dataTransfer.files);
-    });
-    visionFileInput.addEventListener('change', () => {
-      handleVisionFiles(visionFileInput.files);
-      visionFileInput.value = '';
-    });
-
-    function handleVisionFiles(files) {
+    function handleFiles(files) {
       for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
         const reader = new FileReader();
         reader.onload = (e) => {
           const dataUrl = e.target.result;
           const base64 = dataUrl.split(',')[1];
-          visionImages.push({ file, dataUrl, base64 });
-          renderVisionThumbs();
+          imageFiles.push({ file, dataUrl, base64 });
+          renderGrid();
         };
         reader.readAsDataURL(file);
       }
     }
 
-    function renderVisionThumbs() {
-      visionImageGrid.innerHTML = '';
-      visionImages.forEach((img, idx) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'vision-thumb-wrap';
-        wrap.innerHTML = `
-          <img class="vision-thumb" src="${img.dataUrl}" alt="">
-          <button class="vision-thumb-remove" data-idx="${idx}">&times;</button>
+    function renderGrid() {
+      imageGrid.innerHTML = '';
+      imageFiles.forEach((img, i) => {
+        const card = document.createElement('div');
+        card.className = 'image-card';
+        card.innerHTML = `
+          <img src="${img.dataUrl}" alt="${img.file.name}">
+          <button class="remove-btn" data-index="${i}">&times;</button>
         `;
-        wrap.querySelector('.vision-thumb-remove').addEventListener('click', () => {
-          visionImages.splice(idx, 1);
-          renderVisionThumbs();
-        });
-        visionImageGrid.appendChild(wrap);
+        imageGrid.appendChild(card);
       });
-      visionFindBtn.disabled = visionImages.length === 0;
-      visionClearBtn.style.display = visionImages.length > 0 ? 'inline-flex' : 'none';
+      imageGrid.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          imageFiles.splice(parseInt(btn.dataset.index), 1);
+          renderGrid();
+        });
+      });
+      actions.style.display = imageFiles.length > 0 ? 'flex' : 'none';
     }
 
-    visionClearBtn.addEventListener('click', () => {
-      visionImages = [];
-      renderVisionThumbs();
-      visionStatus.textContent = '';
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+
+    clearBtn.addEventListener('click', () => {
+      imageFiles = []; clusterData = [];
+      renderGrid();
+      resultsSection.style.display = 'none';
+      productTableBody.innerHTML = '';
     });
 
-    // ── Claude Opus image identification fallback ──
-    async function identifyWithClaude(item) {
-      // Send up to 3 images to Claude for identification
-      const imagesToSend = item.images.slice(0, 3);
-
-      const contentBlocks = [];
-      for (const img of imagesToSend) {
-        const mimeType = img.file?.type || 'image/jpeg';
-        contentBlocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: mimeType,
-            data: img.base64,
-          },
-        });
-      }
-
-      const labelsHint = item.labels?.length > 0 ? `\nVision detected labels: ${item.labels.join(', ')}` : '';
-      const entitiesHint = item.webEntities?.length > 0 ? `\nVision detected web entities: ${item.webEntities.join(', ')}` : '';
-
-      contentBlocks.push({
-        type: 'text',
-        text: `Identify this product from the image(s). I need the exact product identification for an eBay listing.${labelsHint}${entitiesHint}
-
-Respond with ONLY a JSON object in this exact format, no markdown, no code blocks, no explanation:
-{"productName": "Full Product Name", "brand": "Brand Name", "mpn": "Model or Part Number"}
-
-If you can identify the specific model/part number, include it. If you can only identify the brand and general product type, that's fine — leave mpn as empty string.`,
-      });
-
-      const resp = await fetch(CLAUDE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'user',
-              content: contentBlocks,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 500,
-        }),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error?.message || `Claude error ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      const raw = data.choices?.[0]?.message?.content || '';
-
-      let jsonStr = raw.trim();
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-
-      const result = JSON.parse(jsonStr);
-      return {
-        productName: result.productName || '',
-        brand: result.brand || '',
-        mpn: result.mpn || '',
-      };
-    }
-
-    // ── Find Item with Gemini (via OpenRouter) ──
-    visionFindBtn.addEventListener('click', analyzeWithVision);
-
-    async function analyzeWithVision() {
-      if (visionImages.length === 0) return;
-
-      visionFindBtn.disabled = true;
-      visionFindBtn.textContent = 'Analyzing...';
-      visionStatus.innerHTML = '<span class="spinner"></span>Sending images to Vision AI...';
+    // ═══════════════════════════════════════
+    //  Step 1: Gemini identifies & groups products
+    // ═══════════════════════════════════════
+    submitBtn.addEventListener('click', async () => {
+      if (imageFiles.length === 0) return;
+      submitBtn.disabled = true;
+      statusText.innerHTML = '<span class="spinner"></span>Analyzing & grouping images with Gemini...';
 
       try {
-        // Send base64 images to Gemini via OpenRouter
-        const base64Images = visionImages.map(img => img.base64);
-
-        const resp = await fetch('/api/openrouter/identify', {
+        const base64Images = imageFiles.map(img => img.base64);
+        const resp = await apiFetch('/api/openrouter/identify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ images: base64Images }),
+          body: JSON.stringify({ images: base64Images })
         });
-
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.error?.message || `Vision API error ${resp.status}`);
-        }
-
+        if (!resp.ok) { const err = await resp.json(); throw new Error(err.error?.message || `API error ${resp.status}`); }
         const data = await resp.json();
         const groups = data.groups || [];
 
-        visionStatus.innerHTML = '<span class="spinner"></span>Identifying products...';
-        console.log('[Gemini] Product groups:', groups);
+        statusText.innerHTML = '<span class="spinner"></span>Building product list...';
 
-        // Build identified products from Gemini groups
-        const identified = groups.map(group => {
-          const images = group.imageIndices.map(idx => visionImages[idx]).filter(Boolean);
-          const productName = group.productName || 'Unknown product';
-
-          // Try to extract brand from product name (first word is often the brand)
-          const words = productName.split(' ');
-          const brand = words.length > 1 ? words[0] : '';
-
+        clusterData = groups.map(group => {
+          const cluster = group.imageIndices.map(i => ({
+            index: i,
+            img: imageFiles[i],
+            response: {},
+          }));
+          const brand = (group.productName.match(/^(\S+)/)?.[1]) || '';
           return {
-            productName,
+            cluster,
+            productName: group.productName,
             brand,
-            images,
-            labels: [],
-            webEntities: [],
+            topLabels: [],
+            topWeb: [],
+            topLogos: [],
+            generatedTitle: null, generatedHtml: null,
+            suggestedCategoryId: null, suggestedCategoryName: null,
+            suggestedBrand: null, suggestedType: null, suggestedMpn: null,
+            ebayItemId: null, rejected: false,
+            status: 'pending',
           };
         });
 
-        console.log('[Gemini] Identified products:', identified);
-
-        // ── Claude Opus fallback for unknown products ──
-        const needsClaude = identified.filter(item =>
-          !item.productName ||
-          item.productName.toLowerCase() === 'unknown product'
-        );
-
-        if (needsClaude.length > 0) {
-          visionStatus.innerHTML = '<span class="spinner"></span>Vision uncertain — asking Claude Opus to identify...';
-
-          for (const item of needsClaude) {
-            try {
-              const result = await identifyWithClaude(item);
-              if (result.productName) item.productName = result.productName;
-              if (result.brand) item.brand = result.brand;
-              if (result.mpn) item.mpn = result.mpn;
-              item._claudeIdentified = true;
-              console.log('[Claude Vision] Identified:', result);
-            } catch (err) {
-              console.error('[Claude Vision] Fallback error:', err);
-            }
-          }
-        }
-
-        // Add identified products to the product list
-        for (const item of identified) {
-          const product = {
-            brand: item.brand || '',
-            mpn: item.mpn || '',
-            productName: item.productName,
-            images: item.images,
-            generatedTitle: null,
-            generatedHtml: null,
-            suggestedCategoryId: null,
-            suggestedCategoryName: null,
-            suggestedBrand: item.brand || '',
-            suggestedType: null,
-            suggestedMpn: item.mpn || '',
-            ebayItemId: null,
-            rejected: false,
-            status: 'pending',
-            _visionLabels: item.labels,
-            _visionWebEntities: item.webEntities,
-            _visionIdentified: true,
-            _claudeIdentified: item._claudeIdentified || false,
-          };
-          products.push(product);
-        }
-
-        renderProductTable();
-
-        const count = identified.length;
-        visionStatus.textContent = `Found ${count} product${count !== 1 ? 's' : ''}. You can now generate listings.`;
-
-        // Clear vision images for next batch
-        visionImages = [];
-        renderVisionThumbs();
-
+        renderProductTable(clusterData);
       } catch (err) {
-        visionStatus.textContent = `Error: ${err.message}`;
-        console.error('[Vision] Error:', err);
+        statusText.textContent = `Error: ${err.message}`;
+        submitBtn.disabled = false;
+        return;
       }
+      submitBtn.disabled = false;
+    });
 
-      visionFindBtn.disabled = visionImages.length === 0;
-      visionFindBtn.textContent = 'Find Item';
+    // ── Clustering ──
+    function jaccardSimilarity(a, b) {
+      if (a.size === 0 && b.size === 0) return 0;
+      let inter = 0; for (const x of a) { if (b.has(x)) inter++; }
+      const u = a.size + b.size - inter;
+      return u === 0 ? 0 : inter / u;
+    }
+    function combinedSimilarity(a, b) {
+      const ls = jaccardSimilarity(a.labels, b.labels);
+      const ws = jaccardSimilarity(a.webEntities, b.webEntities);
+      const lo = jaccardSimilarity(a.logos, b.logos);
+      let gb = 0;
+      if (a.bestGuess && b.bestGuess) {
+        const ag = a.bestGuess.toLowerCase(), bg = b.bestGuess.toLowerCase();
+        if (ag === bg) gb = 0.35; else if (ag.includes(bg) || bg.includes(ag)) gb = 0.2;
+      }
+      return (ls * 0.35) + (ws * 0.35) + (lo * 0.1) + gb + (lo > 0 ? 0.1 : 0);
+    }
+    function clusterImages(analyzed) {
+      const n = analyzed.length;
+      const p = Array.from({ length: n }, (_, i) => i);
+      const find = (x) => { while (p[x] !== x) { p[x] = p[p[x]]; x = p[x]; } return x; };
+      const union = (a, b) => { p[find(a)] = find(b); };
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (combinedSimilarity(analyzed[i], analyzed[j]) >= 0.3) union(i, j);
+      const g = {};
+      for (let i = 0; i < n; i++) { const r = find(i); if (!g[r]) g[r] = []; g[r].push(analyzed[i]); }
+      return Object.values(g);
     }
 
-    // ═══════════════════════════════════════
-    //  Add Product
-    // ═══════════════════════════════════════
-    addProductBtn.addEventListener('click', addProduct);
-    mpnInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addProduct(); });
-    brandInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') mpnInput.focus(); });
-
-    function addProduct() {
-      const brand = brandInput.value.trim();
-      const mpn = mpnInput.value.trim();
-
-      if (!brand) { brandInput.focus(); return alert('Please enter a Brand.'); }
-      if (!mpn) { mpnInput.focus(); return alert('Please enter a Manufacturer Part Number (MPN).'); }
-
-      const product = {
-        brand,
-        mpn,
-        productName: `${brand} ${mpn}`,
-        images: [],          // { file, dataUrl, base64 }
-        generatedTitle: null,
-        generatedHtml: null,
-        suggestedCategoryId: null,
-        suggestedCategoryName: null,
-        suggestedBrand: brand,
-        suggestedType: null,
-        suggestedMpn: mpn,
-        ebayItemId: null,
-        rejected: false,
-        status: 'pending',
-      };
-
-      products.push(product);
-      brandInput.value = '';
-      mpnInput.value = '';
-      brandInput.focus();
-
-      renderProductTable();
-      statusText.textContent = `Added: ${brand} ${mpn}`;
+    function buildClusterMeta(clusters) {
+      return clusters.map((cluster) => {
+        const mL = new Map(), mW = new Map(), mLo = new Map(), bg = [];
+        cluster.forEach(item => {
+          const r = item.response;
+          (r.labelAnnotations || []).forEach(l => { if (!mL.has(l.description) || mL.get(l.description) < l.score) mL.set(l.description, l.score); });
+          (r.webDetection?.webEntities || []).filter(e => e.description).forEach(e => { if (!mW.has(e.description) || (mW.get(e.description) || 0) < (e.score || 0)) mW.set(e.description, e.score || 0); });
+          (r.logoAnnotations || []).forEach(l => { if (!mLo.has(l.description) || mLo.get(l.description) < l.score) mLo.set(l.description, l.score); });
+          if (item.bestGuess) bg.push(item.bestGuess);
+        });
+        const gc = {}; bg.forEach(g => { gc[g] = (gc[g] || 0) + 1; });
+        const productName = Object.entries(gc).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unknown product';
+        const topLabels = [...mL.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const topWeb = [...mW.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+        const topLogos = [...mLo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+        return {
+          cluster, productName, brand: topLogos[0]?.[0] || '', topLabels, topWeb, topLogos,
+          generatedTitle: null, generatedHtml: null,
+          suggestedCategoryId: null, suggestedCategoryName: null,
+          suggestedBrand: null, suggestedType: null, suggestedMpn: null,
+          ebayItemId: null, rejected: false,
+          status: 'pending', // pending | generating | ready | listing | listed | rejected
+        };
+      });
     }
 
     // ═══════════════════════════════════════
     //  Render product table
     // ═══════════════════════════════════════
-    function renderProductTable() {
+    function renderProductTable(metas) {
       productTableBody.innerHTML = '';
-      resultsSection.style.display = products.length > 0 ? 'block' : 'none';
-      generateAllBtn.style.display = products.length > 0 ? 'inline-flex' : 'none';
-      listAllBtn.style.display = products.length > 0 ? 'inline-flex' : 'none';
-      resultsHeading.textContent = `${products.length} Product${products.length !== 1 ? 's' : ''}`;
+      resultsSection.style.display = 'block';
+      generateAllBtn.style.display = metas.length > 0 ? 'inline-flex' : 'none';
+      listAllBtn.style.display = metas.length > 0 ? 'inline-flex' : 'none';
+      const total = imageFiles.length;
+      resultsHeading.textContent = `${metas.length} Product${metas.length !== 1 ? 's' : ''} Found — ${total} image${total !== 1 ? 's' : ''}`;
+      statusText.textContent = `Done — ${metas.length} product${metas.length !== 1 ? 's' : ''} identified from ${total} image${total !== 1 ? 's' : ''}`;
 
-      products.forEach((meta, ci) => {
+      metas.forEach((meta, ci) => {
         const tr = document.createElement('tr');
         tr.id = `row-${ci}`;
         tr.innerHTML = buildRowHtml(ci, meta);
         productTableBody.appendChild(tr);
         attachRowEvents(ci);
       });
+
+      resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     function buildRowHtml(ci, meta) {
+      const thumbs = meta.cluster.slice(0, 6).map((item, i) =>
+        `<img class="cell-thumb" src="${item.img.dataUrl}" alt="" title="${escapeHtml(item.img.file.name)}" data-ci="${ci}" data-ti="${i}">`
+      ).join('');
+      const extraCount = meta.cluster.length > 6 ? `<span style="font-size:11px;color:#8b8fa3;">+${meta.cluster.length - 6}</span>` : '';
+
       const title = meta.generatedTitle || meta.productName;
       let metaLine = '';
-      if (meta._visionIdentified) {
-        metaLine = `<span style="color:#4f6ef7;font-weight:600;">Vision AI</span>`;
-        if (meta._claudeIdentified) metaLine += `<span style="color:#7c3aed;font-weight:600;">+ Claude</span>`;
-        if (meta.brand) metaLine += `<span>Brand: ${escapeHtml(meta.brand)}</span>`;
-        if (meta.mpn) metaLine += `<span>MPN: ${escapeHtml(meta.mpn)}</span>`;
-      } else {
-        metaLine = `<span>Brand: ${escapeHtml(meta.brand)}</span><span>MPN: ${escapeHtml(meta.mpn)}</span>`;
-      }
+      if (meta.suggestedBrand || meta.brand) metaLine += `<span>Brand: ${escapeHtml(meta.suggestedBrand || meta.brand)}</span>`;
+      if (meta.suggestedType) metaLine += `<span>Type: ${escapeHtml(meta.suggestedType)}</span>`;
       if (meta.suggestedCategoryName) metaLine += `<span>Cat: ${escapeHtml(meta.suggestedCategoryName)}</span>`;
-      if (meta.images.length > 0) metaLine += `<span>${meta.images.length} photo${meta.images.length !== 1 ? 's' : ''}</span>`;
+      if (!metaLine && meta.cluster.length) metaLine = `<span>${meta.cluster.length} photo${meta.cluster.length !== 1 ? 's' : ''}</span>`;
 
       const statusHtml = buildStatusBadge(meta);
       const actionsHtml = buildActions(ci, meta);
 
       return `
+        <td><div class="cell-images">${thumbs}${extraCount}</div></td>
         <td>
           <div class="cell-product-title">${escapeHtml(title)}</div>
           <div class="cell-product-meta">${metaLine}</div>
@@ -1032,7 +777,6 @@ If you can identify the specific model/part number, include it. If you can only 
       if (s === 'pending') return '<span class="badge badge-pending">Pending</span>';
       if (s === 'generating') return '<span class="badge badge-generating"><span class="spinner spinner-sm" style="border-top-color:#b45309;"></span>Generating</span>';
       if (s === 'ready') return '<span class="badge badge-ready">Ready</span>';
-      if (s === 'verifying') return '<span class="badge badge-verifying"><span class="spinner spinner-sm" style="border-top-color:#7c3aed;"></span>Verifying</span>';
       if (s === 'listing') return '<span class="badge badge-listing"><span class="spinner spinner-sm" style="border-top-color:#b45309;"></span>Listing</span>';
       if (s === 'listed') {
         let html = '<span class="badge badge-listed">Listed</span>';
@@ -1046,8 +790,7 @@ If you can identify the specific model/part number, include it. If you can only 
     function buildActions(ci, meta) {
       const s = meta.status;
       if (s === 'pending') {
-        return `<button class="btn btn-green btn-xs" id="genBtn-${ci}">Generate with OpenAI</button>
-                <button class="btn btn-red btn-xs" id="removeBtn-${ci}">Remove</button>`;
+        return `<button class="btn btn-green btn-xs" id="genBtn-${ci}">Generate with AI</button>`;
       }
       if (s === 'generating') {
         return `<button class="btn btn-green btn-xs" disabled>Generating...</button>`;
@@ -1055,13 +798,9 @@ If you can identify the specific model/part number, include it. If you can only 
       if (s === 'ready') {
         return `
           <button class="btn btn-xs" style="background:#f59e0b;color:#fff;" id="detailBtn-${ci}">Preview</button>
-          <button class="btn btn-claude btn-xs" id="verifyBtn-${ci}"${meta._claudeVerified ? ' title="Already verified"' : ''}>Verify with Claude</button>
           <button class="btn btn-green btn-xs" id="listBtn-${ci}">Publish</button>
           <button class="btn btn-red btn-xs" id="rejectBtn-${ci}">Reject</button>
         `;
-      }
-      if (s === 'verifying') {
-        return `<button class="btn btn-claude btn-xs" disabled>Verifying...</button>`;
       }
       if (s === 'listing') {
         return `<button class="btn btn-green btn-xs" disabled>Listing...</button>`;
@@ -1076,10 +815,11 @@ If you can identify the specific model/part number, include it. If you can only 
     }
 
     function updateRow(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
       const tr = document.getElementById(`row-${ci}`);
       if (!tr) return;
 
+      // Save current price/condition/sku before re-rendering
       const priceEl = document.getElementById(`price-${ci}`);
       const condEl = document.getElementById(`condition-${ci}`);
       const skuEl = document.getElementById(`sku-${ci}`);
@@ -1090,6 +830,7 @@ If you can identify the specific model/part number, include it. If you can only 
       tr.innerHTML = buildRowHtml(ci, meta);
       tr.className = meta.status === 'rejected' ? 'row-rejected' : meta.status === 'listed' ? 'row-listed' : '';
 
+      // Restore price/condition/sku
       const newPrice = document.getElementById(`price-${ci}`);
       const newCond = document.getElementById(`condition-${ci}`);
       const newSku = document.getElementById(`sku-${ci}`);
@@ -1097,6 +838,7 @@ If you can identify the specific model/part number, include it. If you can only 
       if (newCond && savedCond) newCond.value = savedCond;
       if (newSku && savedSku) newSku.value = savedSku;
 
+      // Restore cached price range
       if (meta._priceRange) {
         const pr = meta._priceRange;
         const prContainer = document.getElementById(`priceRange-${ci}`);
@@ -1128,22 +870,18 @@ If you can identify the specific model/part number, include it. If you can only 
       const rejectBtn = document.getElementById(`rejectBtn-${ci}`);
       if (rejectBtn) rejectBtn.addEventListener('click', () => rejectListing(ci));
 
-      const verifyBtn = document.getElementById(`verifyBtn-${ci}`);
-      if (verifyBtn) verifyBtn.addEventListener('click', () => verifyWithClaude(ci));
-
-      const removeBtn = document.getElementById(`removeBtn-${ci}`);
-      if (removeBtn) removeBtn.addEventListener('click', () => {
-        products.splice(ci, 1);
-        renderProductTable();
-      });
-
+      // Price range lookup
       const prBtn = document.getElementById(`priceRangeBtn-${ci}`);
       if (prBtn) prBtn.addEventListener('click', () => lookupPriceRange(ci));
+
+      // Thumb click opens modal
+      const thumbs = document.querySelectorAll(`#row-${ci} .cell-thumb`);
+      thumbs.forEach(t => t.addEventListener('click', () => openModal(ci)));
     }
 
     // ── Price range lookup ──
     async function lookupPriceRange(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
       const btn = document.getElementById(`priceRangeBtn-${ci}`);
       const container = document.getElementById(`priceRange-${ci}`);
       if (!container) return;
@@ -1158,7 +896,7 @@ If you can identify the specific model/part number, include it. If you can only 
         const params = new URLSearchParams({ q: query });
         if (meta.suggestedCategoryId) params.set('category_id', meta.suggestedCategoryId);
 
-        const resp = await fetch(`/api/ebay/price-range?${params}`);
+        const resp = await apiFetch(`/api/ebay/price-range?${params}`);
         const data = await resp.json();
 
         if (!data.success) throw new Error(data.error);
@@ -1188,8 +926,8 @@ If you can identify the specific model/part number, include it. If you can only 
     generateAllBtn.addEventListener('click', async () => {
       generateAllBtn.disabled = true;
       generateAllBtn.textContent = 'Generating...';
-      for (let i = 0; i < products.length; i++) {
-        if (!products[i].generatedHtml && !products[i].rejected) await generateListing(i);
+      for (let i = 0; i < clusterData.length; i++) {
+        if (!clusterData[i].generatedHtml && !clusterData[i].rejected) await generateListing(i);
       }
       generateAllBtn.disabled = false;
       generateAllBtn.textContent = 'Generate All';
@@ -1198,8 +936,8 @@ If you can identify the specific model/part number, include it. If you can only 
     listAllBtn.addEventListener('click', async () => {
       listAllBtn.disabled = true;
       listAllBtn.textContent = 'Publishing...';
-      for (let i = 0; i < products.length; i++) {
-        const m = products[i];
+      for (let i = 0; i < clusterData.length; i++) {
+        const m = clusterData[i];
         if (m.status === 'ready' && !m.rejected && !m.ebayItemId) {
           const priceEl = document.getElementById(`price-${i}`);
           if (priceEl && parseFloat(priceEl.value) > 0) {
@@ -1212,19 +950,17 @@ If you can identify the specific model/part number, include it. If you can only 
     });
 
     // ═══════════════════════════════════════
-    //  OpenAI listing generation
+    //  Step 2: OpenAI listing generation
     // ═══════════════════════════════════════
     async function generateListing(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
       meta.status = 'generating';
       updateRow(ci);
 
-      const prompt = meta._visionIdentified
-        ? buildVisionPrompt(meta)
-        : buildPrompt(meta.brand, meta.mpn);
+      const prompt = buildPrompt(meta.productName, meta.brand || 'Unknown', meta.topLabels.map(([d]) => d).join(', '), meta.topWeb.map(([d]) => d).join(', '));
 
       try {
-        const resp = await fetch(OPENAI_URL, {
+        const resp = await apiFetch(OPENAI_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1242,26 +978,24 @@ If you can identify the specific model/part number, include it. If you can only 
         const { title, html, categoryId, categoryName, brand, type, mpn } = parseListingResponse(raw, meta.productName);
         meta.generatedTitle = title;
         meta.generatedHtml = html;
-        meta.suggestedBrand = brand || meta.brand;
+        // Store OpenAI suggestions as fallbacks
+        meta.suggestedBrand = brand;
         meta.suggestedType = type;
-        meta.suggestedMpn = mpn || meta.mpn;
-        // For Vision-identified products, update brand/mpn from AI response
-        if (meta._visionIdentified) {
-          if (brand && !meta.brand) meta.brand = brand;
-          if (mpn && !meta.mpn) meta.mpn = mpn;
-        }
+        meta.suggestedMpn = mpn;
 
-        // Get verified leaf category from eBay Taxonomy API
+        // Step 2b: Get verified leaf category from eBay Taxonomy API
+        meta.status = 'generating';
         meta._listingProgress = 'Finding best category...';
         updateRow(ci);
 
         try {
-          const catResp = await fetch(`/api/ebay/category-suggestions?q=${encodeURIComponent(title || meta.productName)}`);
+          const catResp = await apiFetch(`/api/ebay/category-suggestions?q=${encodeURIComponent(title || meta.productName)}`);
           const catData = await catResp.json();
           if (catData.success && catData.suggestions?.length > 0) {
             meta.suggestedCategoryId = catData.suggestions[0].id;
             meta.suggestedCategoryName = catData.suggestions[0].name;
           } else {
+            // Fallback to OpenAI suggestion
             meta.suggestedCategoryId = categoryId;
             meta.suggestedCategoryName = categoryName;
           }
@@ -1270,7 +1004,7 @@ If you can identify the specific model/part number, include it. If you can only 
           meta.suggestedCategoryName = categoryName;
         }
 
-        // Fetch item aspects and auto-fill with AI
+        // Step 2c: Fetch item aspects and auto-fill with AI
         if (meta.suggestedCategoryId) {
           meta._listingProgress = 'Filling item specifics...';
           updateRow(ci);
@@ -1289,183 +1023,7 @@ If you can identify the specific model/part number, include it. If you can only 
       updateRow(ci);
     }
 
-    // ═══════════════════════════════════════
-    //  Claude verification (second AI layer)
-    // ═══════════════════════════════════════
-    async function verifyWithClaude(ci) {
-      const meta = products[ci];
-      meta.status = 'verifying';
-      updateRow(ci);
-
-      const productLine = meta._visionIdentified
-        ? `Product: ${meta.productName}${meta.brand ? ' | Brand: ' + meta.brand : ''}${meta.mpn ? ' | MPN: ' + meta.mpn : ''}${meta._visionLabels ? ' | Vision Labels: ' + meta._visionLabels.join(', ') : ''}`
-        : `Brand: ${meta.brand} | MPN: ${meta.mpn}`;
-
-      const verifyPrompt = `You are a senior eBay listing quality reviewer and SEO specialist. You have been given an existing eBay listing that was generated by another AI. Your job is to VERIFY and ENRICH it — not rewrite it from scratch.
-
-PRODUCT: ${productLine}
-CATEGORY: ${meta.suggestedCategoryName || 'Unknown'} (ID: ${meta.suggestedCategoryId || 'Unknown'})
-
-EXISTING TITLE:
-${meta.generatedTitle}
-
-EXISTING HTML DESCRIPTION:
-${meta.generatedHtml}
-
-YOUR TASKS:
-1. TITLE: Review the title. Fix any factual errors about the product. Improve keyword optimization for eBay Cassini search if possible. Keep it under 80 characters. If the title is already good, keep it as-is or make minor improvements only.
-2. DESCRIPTION: Review the HTML description. Fix any factual inaccuracies about this specific product (specs, features, compatibility). Add any missing important details or keywords. Improve readability and buyer appeal if needed. Keep the same HTML structure and styling — do not change the layout, colors, or CSS. Only modify the text content where it genuinely needs improvement.
-3. If something is already accurate and well-written, KEEP IT. Do not change things just to change them.
-
-IMPORTANT: Your response MUST follow this exact format:
-TITLE: [The verified/enriched title, max 80 chars]
-CATEGORY_ID: ${meta.suggestedCategoryId || ''}
-CATEGORY_NAME: ${meta.suggestedCategoryName || ''}
-BRAND: ${meta.suggestedBrand || meta.brand}
-TYPE: ${meta.suggestedType || ''}
-MPN: ${meta.suggestedMpn || meta.mpn}
-HTML:
-[The verified/enriched HTML description]`;
-
-      try {
-        meta._listingProgress = 'Claude is verifying listing...';
-        updateRow(ci);
-
-        const resp = await fetch(CLAUDE_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [
-              { role: 'system', content: 'You are a senior eBay listing quality reviewer. You verify and enrich existing listings — you do not rewrite them from scratch. Only change what genuinely needs improvement. Output only the requested content, no commentary.' },
-              { role: 'user', content: verifyPrompt }
-            ],
-            temperature: 0.4,
-            max_tokens: 4096
-          })
-        });
-        if (!resp.ok) { const err = await resp.json(); throw new Error(err.error?.message || `Claude error ${resp.status}`); }
-        const data = await resp.json();
-        const raw = data.choices[0].message.content.trim();
-        const { title, html, brand, type, mpn } = parseListingResponse(raw, meta.productName);
-        meta.generatedTitle = title;
-        meta.generatedHtml = html;
-        if (brand) meta.suggestedBrand = brand;
-        if (type) meta.suggestedType = type;
-        if (mpn) meta.suggestedMpn = mpn;
-
-        // Verify item aspects with Claude
-        if (meta.suggestedCategoryId) {
-          meta._listingProgress = 'Claude is verifying item specifics...';
-          updateRow(ci);
-          try {
-            await verifyAspectsWithClaude(meta);
-          } catch (e) {
-            console.error('Claude aspect verification error:', e);
-          }
-        }
-
-        meta._claudeVerified = true;
-        meta.status = 'ready';
-      } catch (err) {
-        meta.status = 'ready';
-        alert(`Claude verification error for "${meta.productName}": ${err.message}`);
-      }
-      updateRow(ci);
-    }
-
-    async function verifyAspectsWithClaude(meta) {
-      const aspectResp = await fetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(meta.suggestedCategoryId)}`);
-      const aspectData = await aspectResp.json();
-      if (!aspectData.success || !aspectData.aspects?.length) return;
-
-      const aspects = aspectData.aspects.sort((a, b) => {
-        if (a.required !== b.required) return a.required ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-      const requiredAspects = aspects.filter(a => a.required);
-      const recommendedAspects = aspects.filter(a => !a.required).slice(0, Math.max(0, 20 - requiredAspects.length));
-      const shownAspects = [...requiredAspects, ...recommendedAspects];
-
-      const productInfo = [
-        meta.generatedTitle || meta.productName || '',
-        `Brand: ${meta.brand}`,
-        `MPN: ${meta.mpn}`,
-      ].filter(Boolean).join(' | ');
-
-      const existing = meta._itemAspects || {};
-      if (!existing['Brand'] && meta.brand) existing['Brand'] = meta.suggestedBrand || meta.brand;
-      if (!existing['Type'] && meta.suggestedType) existing['Type'] = meta.suggestedType;
-      if (!existing['MPN'] && meta.mpn) existing['MPN'] = meta.suggestedMpn || meta.mpn;
-
-      const fieldsToFill = shownAspects.map(asp => ({
-        name: asp.name,
-        required: asp.required,
-        currentValue: existing[asp.name] || '',
-        allowedValues: asp.values && asp.values.length > 0 ? asp.values : null,
-      }));
-
-      const prompt = `You are verifying and correcting eBay item specifics that were already filled by another AI. Your job is to CHECK each value for accuracy and CORRECT any mistakes.
-
-Product: ${productInfo}
-
-VERIFICATION RULES:
-1. Each field has a "currentValue" — this was filled by another AI. KEEP IT if it looks correct for this product.
-2. Only CHANGE a value if it is clearly WRONG or a better match exists.
-3. If a field has "allowedValues", the value MUST be EXACTLY one from that list — copy it character-for-character.
-4. If a field has no allowedValues (null), verify the text value is factually accurate for this specific product.
-5. For required fields, ALWAYS provide a value. Use "Does Not Apply" only as a last resort.
-6. Research this specific product (Brand: ${meta.brand}, MPN: ${meta.mpn}) to verify specs are correct.
-
-Fields to verify:
-${JSON.stringify(fieldsToFill, null, 2)}
-
-Respond with ONLY a valid JSON object mapping field names to values (corrected or kept). No explanation, no markdown, no code blocks. Just the JSON object.`;
-
-      const resp = await fetch(CLAUDE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 2000,
-        }),
-      });
-      const data = await resp.json();
-      const content = data.choices?.[0]?.message?.content || '';
-
-      let jsonStr = content.trim();
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-      const values = JSON.parse(jsonStr);
-
-      const result = {};
-      for (const asp of shownAspects) {
-        let val = values[asp.name] ? String(values[asp.name]) : (existing[asp.name] || '');
-        if (!val) continue;
-
-        if (asp.values && asp.values.length > 0) {
-          const exact = asp.values.find(v => v.toLowerCase() === val.toLowerCase());
-          if (exact) {
-            val = exact;
-          } else {
-            const partial = asp.values.find(v =>
-              v.toLowerCase().includes(val.toLowerCase()) ||
-              val.toLowerCase().includes(v.toLowerCase())
-            );
-            val = partial || asp.values[0];
-          }
-        }
-        result[asp.name] = val;
-      }
-
-      meta._itemAspects = result;
-      meta.suggestedBrand = result['Brand'] || meta.suggestedBrand || meta.brand || '';
-      meta.suggestedType = result['Type'] || meta.suggestedType || '';
-      meta.suggestedMpn = result['MPN'] || meta.suggestedMpn || meta.mpn || '';
-    }
-
-    function buildPrompt(brand, mpn) {
+    function buildPrompt(product, brand, labels, webEntities) {
       const exampleHtml = `<div style="max-width:900px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#222;"><div style="background:#003366;padding:20px 30px;text-align:center;border-radius:8px 8px 0 0;"><h1 style="color:#ffffff;font-size:22px;margin:0;">Cisco SG350-28P 28-Port Gigabit PoE Managed Switch</h1></div><div style="padding:25px 30px;background:#f9f9f9;"><p style="font-size:15px;line-height:1.6;color:#333;">The <strong>Cisco SG350-28P</strong> is a high-performance <strong>28-port Gigabit PoE managed network switch</strong> designed for small to medium businesses.</p><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Key Features</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li><strong>28 Gigabit Ethernet Ports</strong> — 24x PoE+ ports, 2x combo mini-GBIC, 2x SFP</li><li><strong>195W PoE Budget</strong> — Power IP cameras, phones, access points</li><li><strong>Advanced L3 Managed</strong> — Static routing, ACLs, VLAN, QoS</li></ul><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Ideal For</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li>Small &amp; medium business networks</li><li>VoIP &amp; IP surveillance</li></ul></div><div style="background:#003366;padding:15px 30px;text-align:center;border-radius:0 0 8px 8px;"><p style="color:#ffffff;font-size:13px;margin:0;">Fast Shipping &bull; Professional Packaging &bull; Trusted Seller</p></div></div>`;
 
       return `Create a Cassini-optimized eBay product description (score 10/10) for the specified item. Use the same HTML color structure and styling as the example provided below.
@@ -1482,70 +1040,22 @@ Follow these detailed instructions:
 - Never change footer.
 - Description must be copy-paste ready for eBay.
 - Avoid extra \\n in the code.
-- Research the product based on Brand and MPN to write an accurate and detailed description.
 
 Here is an example of a well-structured listing:
 ${exampleHtml}
 
-Now create the same thing for this item:
+Now create the same thing for this item: ${product}
 Brand: ${brand}
-MPN (Manufacturer Part Number): ${mpn}
+Detected features/labels: ${labels}
+Related web entities: ${webEntities}
 
 IMPORTANT: Your response MUST follow this exact format:
-TITLE: [An eBay-optimized title, max 80 characters, keyword-rich, must include brand and MPN]
+TITLE: [An eBay-optimized title, max 80 characters, keyword-rich]
 CATEGORY_ID: [The most appropriate eBay leaf category ID number, e.g. 31388 for Digital Cameras, 175673 for Network Switches, 171485 for Laptops. Use a real eBay category ID.]
 CATEGORY_NAME: [The eBay category name for that ID]
-BRAND: [${brand}]
+BRAND: [The brand/manufacturer name, e.g. Cisco, Apple, Dell. Use "Unbranded" if truly generic.]
 TYPE: [The specific product type as used in eBay item specifics for this category, e.g. "Managed Switch", "Laptop", "Router". Be specific.]
-MPN: [${mpn}]
-HTML:
-[The full HTML description code]`;
-    }
-
-    function buildVisionPrompt(meta) {
-      const exampleHtml = `<div style="max-width:900px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#222;"><div style="background:#003366;padding:20px 30px;text-align:center;border-radius:8px 8px 0 0;"><h1 style="color:#ffffff;font-size:22px;margin:0;">Cisco SG350-28P 28-Port Gigabit PoE Managed Switch</h1></div><div style="padding:25px 30px;background:#f9f9f9;"><p style="font-size:15px;line-height:1.6;color:#333;">The <strong>Cisco SG350-28P</strong> is a high-performance <strong>28-port Gigabit PoE managed network switch</strong> designed for small to medium businesses.</p><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Key Features</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li><strong>28 Gigabit Ethernet Ports</strong> — 24x PoE+ ports, 2x combo mini-GBIC, 2x SFP</li><li><strong>195W PoE Budget</strong> — Power IP cameras, phones, access points</li><li><strong>Advanced L3 Managed</strong> — Static routing, ACLs, VLAN, QoS</li></ul><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Ideal For</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li>Small &amp; medium business networks</li><li>VoIP &amp; IP surveillance</li></ul></div><div style="background:#003366;padding:15px 30px;text-align:center;border-radius:0 0 8px 8px;"><p style="color:#ffffff;font-size:13px;margin:0;">Fast Shipping &bull; Professional Packaging &bull; Trusted Seller</p></div></div>`;
-
-      const labelsStr = (meta._visionLabels || []).join(', ');
-      const entitiesStr = (meta._visionWebEntities || []).join(', ');
-
-      return `Create a Cassini-optimized eBay product description (score 10/10) for the specified item. Use the same HTML color structure and styling as the example provided below.
-
-A product has been identified from images using Google Vision AI. Use the detected information to research the EXACT product and create an accurate listing.
-
-DETECTED INFORMATION:
-- Product Name: ${meta.productName}
-${meta.brand ? `- Detected Brand: ${meta.brand}` : ''}
-- Vision Labels: ${labelsStr || 'N/A'}
-- Web Entities: ${entitiesStr || 'N/A'}
-
-IMPORTANT: Based on the detected information above, research this specific product to find:
-1. The exact Brand name
-2. The exact Manufacturer Part Number (MPN) or model number
-3. Accurate specifications and features
-
-Follow these detailed instructions:
-- Use the existing format: header title block, centered image area, feature bullet list, and closing highlights.
-- Do not mention any warranty (express or implied).
-- Use flawless English, clear formatting, and no grammatical errors.
-- Add relevant high-ranking eBay keywords (research and include extra keyword variations and synonyms naturally within the text).
-- Emphasize features, compatibility, and typical use cases.
-- Target both enterprise and individual buyers if applicable.
-- Output should be ready for eBay, HTML included, without placeholder text.
-- Make sure the listing description is 100% unique, well-written, and optimized for visibility and relevance in eBay Cassini search.
-- Never change footer.
-- Description must be copy-paste ready for eBay.
-- Avoid extra \\n in the code.
-
-Here is an example of a well-structured listing:
-${exampleHtml}
-
-IMPORTANT: Your response MUST follow this exact format:
-TITLE: [An eBay-optimized title, max 80 characters, keyword-rich, must include brand and model/MPN]
-CATEGORY_ID: [The most appropriate eBay leaf category ID number. Use a real eBay category ID.]
-CATEGORY_NAME: [The eBay category name for that ID]
-BRAND: [The exact brand name of the product]
-TYPE: [The specific product type as used in eBay item specifics, e.g. "Managed Switch", "Laptop", "Router". Be specific.]
-MPN: [The exact Manufacturer Part Number or model number]
+MPN: [The model/part number if identifiable from the product info, otherwise "Does Not Apply"]
 HTML:
 [The full HTML description code]`;
     }
@@ -1584,7 +1094,7 @@ HTML:
     }
 
     async function openModal(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
       currentModalIndex = ci;
       modalTitle.textContent = meta.generatedTitle || meta.productName;
 
@@ -1596,20 +1106,10 @@ HTML:
         `<option value="${r.id}"${r.default ? ' selected' : ''}>${escapeHtml(r.name)}</option>`
       ).join('');
 
-      // Images section with add button
-      let imagesHtml = '';
-      meta.images.forEach((img, idx) => {
-        imagesHtml += `
-          <div class="modal-thumb-wrap" data-img-idx="${idx}">
-            <img class="modal-thumb" src="${img.dataUrl}" alt="">
-            <button class="modal-thumb-remove" data-img-idx="${idx}">&times;</button>
-          </div>`;
-      });
-      imagesHtml += `
-        <div class="modal-add-photo" id="modalAddPhoto">
-          <span class="plus">+</span>
-          <span>Add Photos</span>
-        </div>`;
+      // Images
+      const imagesHtml = meta.cluster.map((item) =>
+        `<img class="modal-thumb" src="${item.img.dataUrl}" alt="">`
+      ).join('');
 
       // Title block
       let titleBlockHtml = '';
@@ -1677,37 +1177,11 @@ HTML:
             <label>Return Policy</label>
             <select id="modalRetPolicy">${retOptions}</select>
           </div>
-
-          <div class="offers-section">
-            <div class="offers-section-title">Offers &amp; Promotions</div>
-            <div class="offers-grid">
-              <div class="offer-toggle">
-                <label><input type="checkbox" id="modalBestOffer" ${meta._bestOfferEnabled ? 'checked' : ''}> Allow Best Offers</label>
-              </div>
-              <div class="offer-toggle">
-                <label><input type="checkbox" id="modalAutoPay" ${meta._autoPay !== false ? 'checked' : ''}> Require Immediate Payment</label>
-              </div>
-              <div class="offer-sub-fields ${meta._bestOfferEnabled ? 'open' : ''}" id="bestOfferSubFields">
-                <div class="modal-field">
-                  <label>Auto-Accept Price ($)</label>
-                  <input type="number" id="modalAutoAcceptPrice" value="${meta._autoAcceptPrice || ''}" min="0" step="0.01" placeholder="Accept offers at or above">
-                  <div class="offer-hint">Offers at or above this price are automatically accepted</div>
-                </div>
-                <div class="modal-field">
-                  <label>Auto-Decline Price ($)</label>
-                  <input type="number" id="modalMinBestOfferPrice" value="${meta._minBestOfferPrice || ''}" min="0" step="0.01" placeholder="Decline offers below">
-                  <div class="offer-hint">Offers below this price are automatically declined</div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       `;
 
       modalBody.innerHTML = `
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#8b8fa3;margin-bottom:6px;">Product Images</div>
-        <div class="modal-images" id="modalImages">${imagesHtml}</div>
-        <input type="file" id="modalFileInput" accept="image/*" multiple style="display:none;">
+        <div class="modal-images">${imagesHtml}</div>
         ${titleBlockHtml}
         ${descBlockHtml}
         ${fieldsHtml}
@@ -1737,28 +1211,7 @@ HTML:
 
       modalOverlay.classList.add('open');
 
-      // ── Image upload events ──
-      const addPhotoBtn = document.getElementById('modalAddPhoto');
-      const modalFileInput = document.getElementById('modalFileInput');
-      if (addPhotoBtn && modalFileInput) {
-        addPhotoBtn.addEventListener('click', () => modalFileInput.click());
-        modalFileInput.addEventListener('change', () => {
-          handleModalFiles(ci, modalFileInput.files);
-          modalFileInput.value = '';
-        });
-      }
-
-      // Image remove buttons
-      document.querySelectorAll('.modal-thumb-remove').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.imgIdx);
-          meta.images.splice(idx, 1);
-          refreshModalImages(ci);
-          updateRow(ci);
-        });
-      });
-
+      // Attach modal events
       // Tab switching
       modalBody.querySelectorAll('.modal-desc-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -1770,6 +1223,7 @@ HTML:
           const textarea = document.getElementById('modalDescTextarea');
           if (prev) prev.style.display = mode === 'preview' ? 'block' : 'none';
           if (edit) edit.style.display = mode === 'edit' ? 'block' : 'none';
+          // When switching to preview, refresh from textarea edits
           if (mode === 'preview' && prev && textarea) {
             prev.innerHTML = textarea.value;
           }
@@ -1799,21 +1253,6 @@ HTML:
         copyText(copyHtml, val);
       });
 
-      // Best Offer toggle
-      const bestOfferCb = document.getElementById('modalBestOffer');
-      const bestOfferSub = document.getElementById('bestOfferSubFields');
-      if (bestOfferCb && bestOfferSub) {
-        bestOfferCb.addEventListener('change', () => {
-          bestOfferSub.classList.toggle('open', bestOfferCb.checked);
-          if (!bestOfferCb.checked) {
-            const aa = document.getElementById('modalAutoAcceptPrice');
-            const md = document.getElementById('modalMinBestOfferPrice');
-            if (aa) aa.value = '';
-            if (md) md.value = '';
-          }
-        });
-      }
-
       // Category autocomplete
       initCategoryAutocomplete(meta);
 
@@ -1822,7 +1261,7 @@ HTML:
         loadItemAspects(meta.suggestedCategoryId, meta);
       }
 
-      // Save & Close
+      // Save & Close — save modal field edits back to clusterData
       const saveBtn = document.getElementById('modalSaveBtn');
       if (saveBtn) saveBtn.addEventListener('click', () => {
         saveModalFields(ci);
@@ -1845,67 +1284,8 @@ HTML:
       });
     }
 
-    function handleModalFiles(ci, files) {
-      const meta = products[ci];
-      let loaded = 0;
-      const total = files.length;
-      for (const file of files) {
-        if (!file.type.startsWith('image/')) continue;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const dataUrl = e.target.result;
-          const base64 = dataUrl.split(',')[1];
-          meta.images.push({ file, dataUrl, base64 });
-          loaded++;
-          if (loaded >= total) {
-            refreshModalImages(ci);
-            updateRow(ci);
-          }
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-
-    function refreshModalImages(ci) {
-      const meta = products[ci];
-      const container = document.getElementById('modalImages');
-      if (!container) return;
-
-      let html = '';
-      meta.images.forEach((img, idx) => {
-        html += `
-          <div class="modal-thumb-wrap" data-img-idx="${idx}">
-            <img class="modal-thumb" src="${img.dataUrl}" alt="">
-            <button class="modal-thumb-remove" data-img-idx="${idx}">&times;</button>
-          </div>`;
-      });
-      html += `
-        <div class="modal-add-photo" id="modalAddPhoto">
-          <span class="plus">+</span>
-          <span>Add Photos</span>
-        </div>`;
-      container.innerHTML = html;
-
-      // Re-attach events
-      const addPhotoBtn = document.getElementById('modalAddPhoto');
-      const modalFileInput = document.getElementById('modalFileInput');
-      if (addPhotoBtn && modalFileInput) {
-        addPhotoBtn.addEventListener('click', () => modalFileInput.click());
-      }
-
-      document.querySelectorAll('.modal-thumb-remove').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const idx = parseInt(btn.dataset.imgIdx);
-          meta.images.splice(idx, 1);
-          refreshModalImages(ci);
-          updateRow(ci);
-        });
-      });
-    }
-
     function saveModalFields(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
       const titleInput = document.getElementById('modalTitleInput');
       const descTextarea = document.getElementById('modalDescTextarea');
       const catId = document.getElementById('modalCatId');
@@ -1920,23 +1300,14 @@ HTML:
       const catName = document.getElementById('modalCatName');
       if (catName && catName.value.trim()) meta.suggestedCategoryName = catName.value.trim();
       meta._itemAspects = collectAspects();
-      meta.suggestedBrand = meta._itemAspects['Brand'] || meta.brand || '';
+      // Keep backwards compat fields in sync
+      meta.suggestedBrand = meta._itemAspects['Brand'] || '';
       meta.suggestedType = meta._itemAspects['Type'] || '';
-      meta.suggestedMpn = meta._itemAspects['MPN'] || meta.mpn || '';
+      meta.suggestedMpn = meta._itemAspects['MPN'] || '';
       if (sku) meta._sku = sku.value.trim();
       if (qty) meta._modalQty = qty.value;
       if (ship) meta._shippingPolicyId = ship.value;
       if (ret) meta._returnPolicyId = ret.value;
-
-      // Offers & Promotions
-      const bestOfferCb = document.getElementById('modalBestOffer');
-      const autoPayCb = document.getElementById('modalAutoPay');
-      const autoAccept = document.getElementById('modalAutoAcceptPrice');
-      const minOffer = document.getElementById('modalMinBestOfferPrice');
-      if (bestOfferCb) meta._bestOfferEnabled = bestOfferCb.checked;
-      if (autoPayCb) meta._autoPay = autoPayCb.checked;
-      if (autoAccept) meta._autoAcceptPrice = autoAccept.value.trim();
-      if (minOffer) meta._minBestOfferPrice = minOffer.value.trim();
 
       updateRow(ci);
     }
@@ -1984,7 +1355,7 @@ HTML:
         dropdown.innerHTML = '<div class="cat-dropdown-loading">Searching...</div>';
         dropdown.classList.add('open');
         try {
-          const resp = await fetch(`/api/ebay/category-suggestions?q=${encodeURIComponent(q)}`);
+          const resp = await apiFetch(`/api/ebay/category-suggestions?q=${encodeURIComponent(q)}`);
           const data = await resp.json();
           if (!data.success || !data.suggestions?.length) {
             dropdown.innerHTML = '<div class="cat-dropdown-loading">No categories found</div>';
@@ -2006,14 +1377,17 @@ HTML:
         }
       }
 
+      // Close dropdown when clicking outside
       document.addEventListener('click', (e) => {
         if (!e.target.closest('#catAutocomplete')) dropdown.classList.remove('open');
       });
 
+      // Auto-search and auto-select best leaf category if none set
       if (!meta.suggestedCategoryId) {
         const q = meta.generatedTitle || meta.productName || '';
         if (q) {
           await fetchCategories(q);
+          // Auto-select the first (most relevant) leaf category and auto-fill specifics
           const firstItem = dropdown.querySelector('.cat-dropdown-item');
           if (firstItem) {
             selectCategory(firstItem.dataset.id, firstItem.dataset.name, true);
@@ -2023,8 +1397,8 @@ HTML:
     }
 
     // ── Item Aspects (dynamic per category) ──
-    let currentAspects = [];
-    let currentAspectsMeta = null;
+    let currentAspects = []; // tracks loaded aspects for save/list
+    let currentAspectsMeta = null; // reference to meta for autofill
 
     async function loadItemAspects(categoryId, meta, autoFill = false) {
       currentAspectsMeta = meta;
@@ -2034,27 +1408,31 @@ HTML:
       currentAspects = [];
 
       try {
-        const resp = await fetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(categoryId)}`);
+        const resp = await apiFetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(categoryId)}`);
         const data = await resp.json();
         if (!data.success || !data.aspects?.length) {
           container.innerHTML = '';
           return;
         }
 
+        // Sort: required first, then recommended, alphabetical within
         const aspects = data.aspects.sort((a, b) => {
           if (a.required !== b.required) return a.required ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
 
+        // Only show required + top recommended (limit to 20 to avoid clutter)
         const requiredAspects = aspects.filter(a => a.required);
         const recommendedAspects = aspects.filter(a => !a.required).slice(0, Math.max(0, 20 - requiredAspects.length));
         const shownAspects = [...requiredAspects, ...recommendedAspects];
         currentAspects = shownAspects;
 
+        // Saved values from previous edits
         const saved = meta._itemAspects || {};
-        if (!saved['Brand'] && meta.brand) saved['Brand'] = meta.suggestedBrand || meta.brand;
+        // Map old fields to aspect names for backwards compatibility
+        if (!saved['Brand'] && (meta.suggestedBrand || meta.brand)) saved['Brand'] = meta.suggestedBrand || meta.brand;
         if (!saved['Type'] && meta.suggestedType) saved['Type'] = meta.suggestedType;
-        if (!saved['MPN'] && meta.mpn) saved['MPN'] = meta.suggestedMpn || meta.mpn;
+        if (!saved['MPN'] && meta.suggestedMpn) saved['MPN'] = meta.suggestedMpn;
 
         let html = '<div class="aspects-section-title">Item Specifics <button class="aspects-autofill-btn" id="autofillAspectsBtn">Auto-fill with AI</button></div>';
         html += '<div class="modal-fields" style="margin-bottom:0;">';
@@ -2065,6 +1443,7 @@ HTML:
           const fieldId = `aspect_${asp.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
           if (asp.values && asp.values.length > 0) {
+            // Combo: input with dropdown suggestions
             const optionsHtml = asp.values.map(v =>
               `<div class="aspect-option" data-val="${escapeHtml(v)}">${escapeHtml(v)}</div>`
             ).join('');
@@ -2125,6 +1504,7 @@ HTML:
           autofillBtn.addEventListener('click', () => autofillAspects());
         }
 
+        // Auto-fill if requested (first load with auto-selected category)
         if (autoFill && !meta._itemAspects) {
           autofillAspects();
         }
@@ -2155,10 +1535,11 @@ HTML:
       const meta = currentAspectsMeta;
       const productInfo = [
         meta.generatedTitle || meta.productName || '',
-        `Brand: ${meta.brand}`,
-        `MPN: ${meta.mpn}`,
+        meta.brand || '',
+        meta.productName || '',
       ].filter(Boolean).join(' | ');
 
+      // Build the fields list for the prompt
       const fieldsToFill = currentAspects.map(asp => {
         const fieldId = `aspect_${asp.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
         const el = document.getElementById(fieldId);
@@ -2188,7 +1569,7 @@ ${JSON.stringify(fieldsToFill, null, 2)}
 Respond with ONLY a valid JSON object mapping field names to values. No explanation, no markdown, no code blocks. Just the JSON object.`;
 
       try {
-        const resp = await fetch('/api/openai/chat', {
+        const resp = await apiFetch('/api/openai/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2200,25 +1581,30 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
         const data = await resp.json();
         const content = data.choices?.[0]?.message?.content || '';
 
+        // Parse JSON from response (handle markdown code blocks)
         let jsonStr = content.trim();
         if (jsonStr.startsWith('```')) {
           jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
         }
         const values = JSON.parse(jsonStr);
 
+        // Fill in the fields with validation against allowed values
         for (const [name, value] of Object.entries(values)) {
           const fieldId = `aspect_${name.replace(/[^a-zA-Z0-9]/g, '_')}`;
           const el = document.getElementById(fieldId);
           if (!el || !value) continue;
 
+          // Find the aspect definition to check allowed values
           const asp = currentAspects.find(a => a.name === name);
           let finalValue = String(value);
 
+          // If this field has allowed values, snap to the closest match
           if (asp && asp.values && asp.values.length > 0) {
             const exact = asp.values.find(v => v.toLowerCase() === finalValue.toLowerCase());
             if (exact) {
-              finalValue = exact;
+              finalValue = exact; // exact match (case-corrected)
             } else {
+              // Find closest match by substring/includes
               const partial = asp.values.find(v =>
                 v.toLowerCase().includes(finalValue.toLowerCase()) ||
                 finalValue.toLowerCase().includes(v.toLowerCase())
@@ -2226,11 +1612,13 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
               if (partial) {
                 finalValue = partial;
               } else {
+                // Last resort: pick first allowed value rather than an invalid one
                 finalValue = asp.values[0];
               }
             }
           }
 
+          // Fill if empty, or overwrite with validated value
           if (!el.value.trim()) {
             el.value = finalValue;
           }
@@ -2247,7 +1635,8 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
 
     // ── Headless aspect prefill (runs during Generate, no modal needed) ──
     async function prefillItemAspects(meta) {
-      const aspectResp = await fetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(meta.suggestedCategoryId)}`);
+      // 1. Fetch aspects for the category
+      const aspectResp = await apiFetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(meta.suggestedCategoryId)}`);
       const aspectData = await aspectResp.json();
       if (!aspectData.success || !aspectData.aspects?.length) return;
 
@@ -2259,16 +1648,17 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       const recommendedAspects = aspects.filter(a => !a.required).slice(0, Math.max(0, 20 - requiredAspects.length));
       const shownAspects = [...requiredAspects, ...recommendedAspects];
 
+      // 2. Build context for AI
       const productInfo = [
         meta.generatedTitle || meta.productName || '',
-        `Brand: ${meta.brand}`,
-        `MPN: ${meta.mpn}`,
+        meta.brand || '',
+        meta.productName || '',
       ].filter(Boolean).join(' | ');
 
       const existing = meta._itemAspects || {};
-      if (!existing['Brand'] && meta.brand) existing['Brand'] = meta.suggestedBrand || meta.brand;
+      if (!existing['Brand'] && meta.suggestedBrand) existing['Brand'] = meta.suggestedBrand;
       if (!existing['Type'] && meta.suggestedType) existing['Type'] = meta.suggestedType;
-      if (!existing['MPN'] && meta.mpn) existing['MPN'] = meta.suggestedMpn || meta.mpn;
+      if (!existing['MPN'] && meta.suggestedMpn) existing['MPN'] = meta.suggestedMpn;
 
       const fieldsToFill = shownAspects.map(asp => ({
         name: asp.name,
@@ -2293,7 +1683,8 @@ ${JSON.stringify(fieldsToFill, null, 2)}
 
 Respond with ONLY a valid JSON object mapping field names to values. No explanation, no markdown, no code blocks. Just the JSON object.`;
 
-      const resp = await fetch('/api/openai/chat', {
+      // 3. Call OpenAI
+      const resp = await apiFetch('/api/openai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2311,6 +1702,7 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       }
       const values = JSON.parse(jsonStr);
 
+      // 4. Validate against allowed values and store
       const result = {};
       for (const asp of shownAspects) {
         let val = values[asp.name] ? String(values[asp.name]) : (existing[asp.name] || '');
@@ -2332,9 +1724,10 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       }
 
       meta._itemAspects = result;
-      meta.suggestedBrand = result['Brand'] || meta.suggestedBrand || meta.brand || '';
+      // Sync backwards compat fields
+      meta.suggestedBrand = result['Brand'] || meta.suggestedBrand || '';
       meta.suggestedType = result['Type'] || meta.suggestedType || '';
-      meta.suggestedMpn = result['MPN'] || meta.suggestedMpn || meta.mpn || '';
+      meta.suggestedMpn = result['MPN'] || meta.suggestedMpn || '';
     }
 
     function copyText(btn, text) {
@@ -2350,13 +1743,13 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
     //  Reject
     // ═══════════════════════════════════════
     function rejectListing(ci) {
-      products[ci].rejected = true;
-      products[ci].status = 'rejected';
+      clusterData[ci].rejected = true;
+      clusterData[ci].status = 'rejected';
       updateRow(ci);
     }
 
     // ═══════════════════════════════════════
-    //  eBay listing
+    //  Step 3: eBay listing
     // ═══════════════════════════════════════
 
     // Fetch seller policies once
@@ -2364,7 +1757,7 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
     async function ensurePolicies() {
       if (sellerPolicies) return sellerPolicies;
       try {
-        const resp = await fetch('/api/ebay/policies');
+        const resp = await apiFetch('/api/ebay/policies');
         sellerPolicies = await resp.json();
       } catch (e) {
         sellerPolicies = { shipping: [], returnPolicies: [] };
@@ -2373,7 +1766,7 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
     }
 
     async function listOnEbay(ci) {
-      const meta = products[ci];
+      const meta = clusterData[ci];
 
       const price = document.getElementById(`price-${ci}`).value;
       const conditionId = document.getElementById(`condition-${ci}`).value;
@@ -2382,10 +1775,12 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       const categoryId = meta.suggestedCategoryId || '';
       const quantity = meta._modalQty || '1';
       const itemSpecifics = meta._itemAspects || {};
-      if (!itemSpecifics['Brand'] && meta.brand) itemSpecifics['Brand'] = meta.suggestedBrand || meta.brand;
+      // Backwards compat: ensure Brand/Type/MPN from old fields
+      if (!itemSpecifics['Brand'] && (meta.suggestedBrand || meta.brand)) itemSpecifics['Brand'] = meta.suggestedBrand || meta.brand;
       if (!itemSpecifics['Type'] && meta.suggestedType) itemSpecifics['Type'] = meta.suggestedType;
-      if (!itemSpecifics['MPN'] && meta.mpn) itemSpecifics['MPN'] = meta.suggestedMpn || meta.mpn;
+      if (!itemSpecifics['MPN'] && meta.suggestedMpn) itemSpecifics['MPN'] = meta.suggestedMpn;
 
+      // Use default policies unless modal overrides were saved
       const policies = await ensurePolicies();
       const shippingPolicyId = meta._shippingPolicyId || (policies.shipping?.find(s => s.default)?.id || policies.shipping?.[0]?.id || '');
       const returnPolicyId = meta._returnPolicyId || (policies.returnPolicies?.find(r => r.default)?.id || policies.returnPolicies?.[0]?.id || '');
@@ -2395,7 +1790,7 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
         return;
       }
       if (!categoryId || !/^\d+$/.test(categoryId)) {
-        alert(`Please enter a valid category ID. Open Preview for "${meta.generatedTitle || meta.productName}"`);
+        alert(`Please enter a valid category ID. Open Details for "${meta.generatedTitle || meta.productName}"`);
         return;
       }
 
@@ -2403,6 +1798,7 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       if (!meta._itemAspects || Object.keys(meta._itemAspects).length === 0) {
         try {
           await prefillItemAspects(meta);
+          // Re-read aspects after fill
           Object.assign(itemSpecifics, meta._itemAspects || {});
         } catch (e) { console.error('Pre-publish aspect fill failed:', e); }
       }
@@ -2410,22 +1806,22 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
       meta.status = 'listing';
       updateRow(ci);
 
-      // Upload all images
+      // Step 1: Upload all images
       const pictureUrls = [];
-      const total = meta.images.length;
+      const total = meta.cluster.length;
 
       for (let i = 0; i < total; i++) {
         meta._listingProgress = `Uploading image ${i + 1}/${total}`;
-        const img = meta.images[i];
+        const item = meta.cluster[i];
 
         try {
-          const resp = await fetch('/api/ebay/upload-image', {
+          const resp = await apiFetch('/api/ebay/upload-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              base64: img.base64,
-              filename: img.file.name,
-              mimeType: img.file.type
+              base64: item.img.base64,
+              filename: item.img.file.name,
+              mimeType: item.img.file.type
             })
           });
           const data = await resp.json();
@@ -2442,11 +1838,11 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
         }
       }
 
-      // Create listing
+      // Step 2: Create listing
       meta._listingProgress = 'Creating listing...';
 
       try {
-        const resp = await fetch('/api/ebay/add-item', {
+        const resp = await apiFetch('/api/ebay/add-item', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2461,10 +1857,6 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
             itemSpecifics,
             shippingPolicyId,
             returnPolicyId,
-            bestOfferEnabled: meta._bestOfferEnabled || false,
-            autoAcceptPrice: meta._autoAcceptPrice || '',
-            minBestOfferPrice: meta._minBestOfferPrice || '',
-            autoPay: meta._autoPay !== false,
           })
         });
         const data = await resp.json();
