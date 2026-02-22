@@ -11,6 +11,8 @@ const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID || '';
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET || '';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
 
 // ── Serve static files ──
 app.use(express.static(path.join(__dirname)));
@@ -189,6 +191,7 @@ app.post('/api/ebay/add-item', async (req, res) => {
     title, description, price, categoryId,
     conditionId, pictureUrls, quantity, location,
     sku, itemSpecifics, shippingPolicyId, returnPolicyId,
+    bestOfferEnabled, autoAcceptPrice, minBestOfferPrice, autoPay,
   } = req.body;
 
   // Validate category via Trading API GetCategories
@@ -279,6 +282,16 @@ app.post('/api/ebay/add-item', async (req, res) => {
     '    <ListingDuration>GTC</ListingDuration>',
     '    <ListingType>FixedPriceItem</ListingType>',
     `    <Quantity>${parseInt(quantity) || 1}</Quantity>`,
+    autoPay !== false ? '    <AutoPay>true</AutoPay>' : null,
+    bestOfferEnabled ? '    <BestOfferDetails>' : null,
+    bestOfferEnabled ? '      <BestOfferEnabled>true</BestOfferEnabled>' : null,
+    bestOfferEnabled ? '    </BestOfferDetails>' : null,
+    (bestOfferEnabled && (parseFloat(autoAcceptPrice) > 0 || parseFloat(minBestOfferPrice) > 0)) ? '    <ListingDetails>' : null,
+    (bestOfferEnabled && parseFloat(autoAcceptPrice) > 0)
+      ? `      <BestOfferAutoAcceptPrice currencyID="USD">${parseFloat(autoAcceptPrice).toFixed(2)}</BestOfferAutoAcceptPrice>` : null,
+    (bestOfferEnabled && parseFloat(minBestOfferPrice) > 0)
+      ? `      <MinimumBestOfferPrice currencyID="USD">${parseFloat(minBestOfferPrice).toFixed(2)}</MinimumBestOfferPrice>` : null,
+    (bestOfferEnabled && (parseFloat(autoAcceptPrice) > 0 || parseFloat(minBestOfferPrice) > 0)) ? '    </ListingDetails>' : null,
     '    <PictureDetails>',
     pictureUrlsXml,
     '    </PictureDetails>',
@@ -356,6 +369,56 @@ app.post('/api/openai/chat', async (req, res) => {
     const data = await resp.json();
     if (!resp.ok) return res.status(resp.status).json(data);
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+// ── Claude (Anthropic) proxy ──
+app.post('/api/claude/chat', async (req, res) => {
+  if (!ANTHROPIC_API_KEY) return res.status(400).json({ error: { message: 'Anthropic API key not configured in .env' } });
+
+  const { messages, temperature, max_tokens } = req.body;
+
+  // Convert OpenAI-style messages to Anthropic format
+  let systemPrompt = '';
+  const anthropicMessages = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      systemPrompt = msg.content;
+    } else {
+      anthropicMessages.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: max_tokens ?? 4096,
+        ...(systemPrompt ? { system: systemPrompt } : {}),
+        messages: anthropicMessages,
+        temperature: temperature ?? 0.7,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return res.status(resp.status).json({ error: { message: data.error?.message || JSON.stringify(data) } });
+
+    // Normalize to OpenAI-compatible shape so frontend code stays the same
+    res.json({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: data.content?.[0]?.text || '',
+        },
+      }],
+    });
   } catch (err) {
     res.status(500).json({ error: { message: err.message } });
   }

@@ -216,6 +216,12 @@
     .badge-listing { background: #fef3c7; color: #b45309; }
     .badge-listed { background: #22c55e; color: #fff; }
     .badge-rejected { background: #fee2e2; color: #dc2626; }
+    .badge-verifying { background: #f3e8ff; color: #7c3aed; }
+
+    /* Claude button */
+    .btn-claude { background: #7c3aed; color: #fff; }
+    .btn-claude:hover { background: #6d28d9; }
+    .btn-claude:disabled { background: #ddd6fe; color: #a78bfa; cursor: not-allowed; transform: none; }
 
     /* Actions cell */
     .cell-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
@@ -415,6 +421,44 @@
       grid-column: 1 / -1; font-size: 12px; color: #8b8fa3; padding: 8px 0;
     }
 
+    /* Offers & Promotions section */
+    .offers-section {
+      grid-column: 1 / -1;
+      margin-top: 8px;
+    }
+    .offers-section-title {
+      font-size: 11px; font-weight: 700; color: #4f6ef7; text-transform: uppercase;
+      letter-spacing: 0.5px; margin: 0 0 12px; padding-bottom: 6px;
+      border-bottom: 1px solid #eef1ff;
+    }
+    .offers-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px;
+    }
+    .offer-toggle {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .offer-toggle label {
+      font-size: 13px; font-weight: 500; color: #1a1a2e; cursor: pointer;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .offer-toggle input[type="checkbox"] {
+      width: 16px; height: 16px; accent-color: #4f6ef7; cursor: pointer;
+    }
+    .offer-sub-fields {
+      grid-column: 1 / -1;
+      display: none; gap: 12px 20px;
+      grid-template-columns: 1fr 1fr;
+      margin-top: 4px;
+      padding: 12px; background: #f8f9fb; border-radius: 10px; border: 1px solid #e5e7eb;
+    }
+    .offer-sub-fields.open { display: grid; }
+    .offer-sub-fields .modal-field label {
+      font-size: 11px; color: #8b8fa3;
+    }
+    .offer-hint {
+      font-size: 11px; color: #8b8fa3; margin-top: 2px;
+    }
+
     /* Modal: Footer actions */
     .modal-footer {
       padding: 14px 24px; border-top: 1px solid #e5e7eb;
@@ -497,6 +541,7 @@
 
   <script>
     const OPENAI_URL = '/api/openai/chat';
+    const CLAUDE_URL = '/api/claude/chat';
 
     const brandInput = document.getElementById('brandInput');
     const mpnInput = document.getElementById('mpnInput');
@@ -617,6 +662,7 @@
       if (s === 'pending') return '<span class="badge badge-pending">Pending</span>';
       if (s === 'generating') return '<span class="badge badge-generating"><span class="spinner spinner-sm" style="border-top-color:#b45309;"></span>Generating</span>';
       if (s === 'ready') return '<span class="badge badge-ready">Ready</span>';
+      if (s === 'verifying') return '<span class="badge badge-verifying"><span class="spinner spinner-sm" style="border-top-color:#7c3aed;"></span>Verifying</span>';
       if (s === 'listing') return '<span class="badge badge-listing"><span class="spinner spinner-sm" style="border-top-color:#b45309;"></span>Listing</span>';
       if (s === 'listed') {
         let html = '<span class="badge badge-listed">Listed</span>';
@@ -630,7 +676,7 @@
     function buildActions(ci, meta) {
       const s = meta.status;
       if (s === 'pending') {
-        return `<button class="btn btn-green btn-xs" id="genBtn-${ci}">Generate with AI</button>
+        return `<button class="btn btn-green btn-xs" id="genBtn-${ci}">Generate with OpenAI</button>
                 <button class="btn btn-red btn-xs" id="removeBtn-${ci}">Remove</button>`;
       }
       if (s === 'generating') {
@@ -639,9 +685,13 @@
       if (s === 'ready') {
         return `
           <button class="btn btn-xs" style="background:#f59e0b;color:#fff;" id="detailBtn-${ci}">Preview</button>
+          <button class="btn btn-claude btn-xs" id="verifyBtn-${ci}"${meta._claudeVerified ? ' title="Already verified"' : ''}>Verify with Claude</button>
           <button class="btn btn-green btn-xs" id="listBtn-${ci}">Publish</button>
           <button class="btn btn-red btn-xs" id="rejectBtn-${ci}">Reject</button>
         `;
+      }
+      if (s === 'verifying') {
+        return `<button class="btn btn-claude btn-xs" disabled>Verifying...</button>`;
       }
       if (s === 'listing') {
         return `<button class="btn btn-green btn-xs" disabled>Listing...</button>`;
@@ -707,6 +757,9 @@
 
       const rejectBtn = document.getElementById(`rejectBtn-${ci}`);
       if (rejectBtn) rejectBtn.addEventListener('click', () => rejectListing(ci));
+
+      const verifyBtn = document.getElementById(`verifyBtn-${ci}`);
+      if (verifyBtn) verifyBtn.addEventListener('click', () => verifyWithClaude(ci));
 
       const removeBtn = document.getElementById(`removeBtn-${ci}`);
       if (removeBtn) removeBtn.addEventListener('click', () => {
@@ -857,6 +910,178 @@
         alert(`Generation error for "${meta.productName}": ${err.message}`);
       }
       updateRow(ci);
+    }
+
+    // ═══════════════════════════════════════
+    //  Claude verification (second AI layer)
+    // ═══════════════════════════════════════
+    async function verifyWithClaude(ci) {
+      const meta = products[ci];
+      meta.status = 'verifying';
+      updateRow(ci);
+
+      const verifyPrompt = `You are a senior eBay listing quality reviewer and SEO specialist. You have been given an existing eBay listing that was generated by another AI. Your job is to VERIFY and ENRICH it — not rewrite it from scratch.
+
+PRODUCT: Brand: ${meta.brand} | MPN: ${meta.mpn}
+CATEGORY: ${meta.suggestedCategoryName || 'Unknown'} (ID: ${meta.suggestedCategoryId || 'Unknown'})
+
+EXISTING TITLE:
+${meta.generatedTitle}
+
+EXISTING HTML DESCRIPTION:
+${meta.generatedHtml}
+
+YOUR TASKS:
+1. TITLE: Review the title. Fix any factual errors about the product. Improve keyword optimization for eBay Cassini search if possible. Keep it under 80 characters. If the title is already good, keep it as-is or make minor improvements only.
+2. DESCRIPTION: Review the HTML description. Fix any factual inaccuracies about this specific product (specs, features, compatibility). Add any missing important details or keywords. Improve readability and buyer appeal if needed. Keep the same HTML structure and styling — do not change the layout, colors, or CSS. Only modify the text content where it genuinely needs improvement.
+3. If something is already accurate and well-written, KEEP IT. Do not change things just to change them.
+
+IMPORTANT: Your response MUST follow this exact format:
+TITLE: [The verified/enriched title, max 80 chars]
+CATEGORY_ID: ${meta.suggestedCategoryId || ''}
+CATEGORY_NAME: ${meta.suggestedCategoryName || ''}
+BRAND: ${meta.suggestedBrand || meta.brand}
+TYPE: ${meta.suggestedType || ''}
+MPN: ${meta.suggestedMpn || meta.mpn}
+HTML:
+[The verified/enriched HTML description]`;
+
+      try {
+        meta._listingProgress = 'Claude is verifying listing...';
+        updateRow(ci);
+
+        const resp = await fetch(CLAUDE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: 'You are a senior eBay listing quality reviewer. You verify and enrich existing listings — you do not rewrite them from scratch. Only change what genuinely needs improvement. Output only the requested content, no commentary.' },
+              { role: 'user', content: verifyPrompt }
+            ],
+            temperature: 0.4,
+            max_tokens: 4096
+          })
+        });
+        if (!resp.ok) { const err = await resp.json(); throw new Error(err.error?.message || `Claude error ${resp.status}`); }
+        const data = await resp.json();
+        const raw = data.choices[0].message.content.trim();
+        const { title, html, brand, type, mpn } = parseListingResponse(raw, meta.productName);
+        meta.generatedTitle = title;
+        meta.generatedHtml = html;
+        if (brand) meta.suggestedBrand = brand;
+        if (type) meta.suggestedType = type;
+        if (mpn) meta.suggestedMpn = mpn;
+
+        // Verify item aspects with Claude
+        if (meta.suggestedCategoryId) {
+          meta._listingProgress = 'Claude is verifying item specifics...';
+          updateRow(ci);
+          try {
+            await verifyAspectsWithClaude(meta);
+          } catch (e) {
+            console.error('Claude aspect verification error:', e);
+          }
+        }
+
+        meta._claudeVerified = true;
+        meta.status = 'ready';
+      } catch (err) {
+        meta.status = 'ready';
+        alert(`Claude verification error for "${meta.productName}": ${err.message}`);
+      }
+      updateRow(ci);
+    }
+
+    async function verifyAspectsWithClaude(meta) {
+      const aspectResp = await fetch(`/api/ebay/item-aspects?category_id=${encodeURIComponent(meta.suggestedCategoryId)}`);
+      const aspectData = await aspectResp.json();
+      if (!aspectData.success || !aspectData.aspects?.length) return;
+
+      const aspects = aspectData.aspects.sort((a, b) => {
+        if (a.required !== b.required) return a.required ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      const requiredAspects = aspects.filter(a => a.required);
+      const recommendedAspects = aspects.filter(a => !a.required).slice(0, Math.max(0, 20 - requiredAspects.length));
+      const shownAspects = [...requiredAspects, ...recommendedAspects];
+
+      const productInfo = [
+        meta.generatedTitle || meta.productName || '',
+        `Brand: ${meta.brand}`,
+        `MPN: ${meta.mpn}`,
+      ].filter(Boolean).join(' | ');
+
+      const existing = meta._itemAspects || {};
+      if (!existing['Brand'] && meta.brand) existing['Brand'] = meta.suggestedBrand || meta.brand;
+      if (!existing['Type'] && meta.suggestedType) existing['Type'] = meta.suggestedType;
+      if (!existing['MPN'] && meta.mpn) existing['MPN'] = meta.suggestedMpn || meta.mpn;
+
+      const fieldsToFill = shownAspects.map(asp => ({
+        name: asp.name,
+        required: asp.required,
+        currentValue: existing[asp.name] || '',
+        allowedValues: asp.values && asp.values.length > 0 ? asp.values : null,
+      }));
+
+      const prompt = `You are verifying and correcting eBay item specifics that were already filled by another AI. Your job is to CHECK each value for accuracy and CORRECT any mistakes.
+
+Product: ${productInfo}
+
+VERIFICATION RULES:
+1. Each field has a "currentValue" — this was filled by another AI. KEEP IT if it looks correct for this product.
+2. Only CHANGE a value if it is clearly WRONG or a better match exists.
+3. If a field has "allowedValues", the value MUST be EXACTLY one from that list — copy it character-for-character.
+4. If a field has no allowedValues (null), verify the text value is factually accurate for this specific product.
+5. For required fields, ALWAYS provide a value. Use "Does Not Apply" only as a last resort.
+6. Research this specific product (Brand: ${meta.brand}, MPN: ${meta.mpn}) to verify specs are correct.
+
+Fields to verify:
+${JSON.stringify(fieldsToFill, null, 2)}
+
+Respond with ONLY a valid JSON object mapping field names to values (corrected or kept). No explanation, no markdown, no code blocks. Just the JSON object.`;
+
+      const resp = await fetch(CLAUDE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: 2000,
+        }),
+      });
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content || '';
+
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+      const values = JSON.parse(jsonStr);
+
+      const result = {};
+      for (const asp of shownAspects) {
+        let val = values[asp.name] ? String(values[asp.name]) : (existing[asp.name] || '');
+        if (!val) continue;
+
+        if (asp.values && asp.values.length > 0) {
+          const exact = asp.values.find(v => v.toLowerCase() === val.toLowerCase());
+          if (exact) {
+            val = exact;
+          } else {
+            const partial = asp.values.find(v =>
+              v.toLowerCase().includes(val.toLowerCase()) ||
+              val.toLowerCase().includes(v.toLowerCase())
+            );
+            val = partial || asp.values[0];
+          }
+        }
+        result[asp.name] = val;
+      }
+
+      meta._itemAspects = result;
+      meta.suggestedBrand = result['Brand'] || meta.suggestedBrand || meta.brand || '';
+      meta.suggestedType = result['Type'] || meta.suggestedType || '';
+      meta.suggestedMpn = result['MPN'] || meta.suggestedMpn || meta.mpn || '';
     }
 
     function buildPrompt(brand, mpn) {
@@ -1023,6 +1248,30 @@ HTML:
             <label>Return Policy</label>
             <select id="modalRetPolicy">${retOptions}</select>
           </div>
+
+          <div class="offers-section">
+            <div class="offers-section-title">Offers &amp; Promotions</div>
+            <div class="offers-grid">
+              <div class="offer-toggle">
+                <label><input type="checkbox" id="modalBestOffer" ${meta._bestOfferEnabled ? 'checked' : ''}> Allow Best Offers</label>
+              </div>
+              <div class="offer-toggle">
+                <label><input type="checkbox" id="modalAutoPay" ${meta._autoPay !== false ? 'checked' : ''}> Require Immediate Payment</label>
+              </div>
+              <div class="offer-sub-fields ${meta._bestOfferEnabled ? 'open' : ''}" id="bestOfferSubFields">
+                <div class="modal-field">
+                  <label>Auto-Accept Price ($)</label>
+                  <input type="number" id="modalAutoAcceptPrice" value="${meta._autoAcceptPrice || ''}" min="0" step="0.01" placeholder="Accept offers at or above">
+                  <div class="offer-hint">Offers at or above this price are automatically accepted</div>
+                </div>
+                <div class="modal-field">
+                  <label>Auto-Decline Price ($)</label>
+                  <input type="number" id="modalMinBestOfferPrice" value="${meta._minBestOfferPrice || ''}" min="0" step="0.01" placeholder="Decline offers below">
+                  <div class="offer-hint">Offers below this price are automatically declined</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       `;
 
@@ -1120,6 +1369,21 @@ HTML:
         const val = document.getElementById('modalDescTextarea')?.value || meta.generatedHtml;
         copyText(copyHtml, val);
       });
+
+      // Best Offer toggle
+      const bestOfferCb = document.getElementById('modalBestOffer');
+      const bestOfferSub = document.getElementById('bestOfferSubFields');
+      if (bestOfferCb && bestOfferSub) {
+        bestOfferCb.addEventListener('change', () => {
+          bestOfferSub.classList.toggle('open', bestOfferCb.checked);
+          if (!bestOfferCb.checked) {
+            const aa = document.getElementById('modalAutoAcceptPrice');
+            const md = document.getElementById('modalMinBestOfferPrice');
+            if (aa) aa.value = '';
+            if (md) md.value = '';
+          }
+        });
+      }
 
       // Category autocomplete
       initCategoryAutocomplete(meta);
@@ -1234,6 +1498,16 @@ HTML:
       if (qty) meta._modalQty = qty.value;
       if (ship) meta._shippingPolicyId = ship.value;
       if (ret) meta._returnPolicyId = ret.value;
+
+      // Offers & Promotions
+      const bestOfferCb = document.getElementById('modalBestOffer');
+      const autoPayCb = document.getElementById('modalAutoPay');
+      const autoAccept = document.getElementById('modalAutoAcceptPrice');
+      const minOffer = document.getElementById('modalMinBestOfferPrice');
+      if (bestOfferCb) meta._bestOfferEnabled = bestOfferCb.checked;
+      if (autoPayCb) meta._autoPay = autoPayCb.checked;
+      if (autoAccept) meta._autoAcceptPrice = autoAccept.value.trim();
+      if (minOffer) meta._minBestOfferPrice = minOffer.value.trim();
 
       updateRow(ci);
     }
@@ -1758,6 +2032,10 @@ Respond with ONLY a valid JSON object mapping field names to values. No explanat
             itemSpecifics,
             shippingPolicyId,
             returnPolicyId,
+            bestOfferEnabled: meta._bestOfferEnabled || false,
+            autoAcceptPrice: meta._autoAcceptPrice || '',
+            minBestOfferPrice: meta._minBestOfferPrice || '',
+            autoPay: meta._autoPay !== false,
           })
         });
         const data = await resp.json();
