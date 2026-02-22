@@ -1,0 +1,492 @@
+require('dotenv').config();
+const express = require('express');
+const path = require('path');
+
+const app = express();
+app.use(express.json({ limit: '50mb' }));
+
+// ── Credentials from .env ──
+const EBAY_TOKEN = process.env.EBAY_TOKEN || '';
+const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID || '';
+const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET || '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+
+// ── Serve static files ──
+app.use(express.static(path.join(__dirname)));
+
+// ── eBay helpers ──
+const EBAY_API_URL = 'https://api.ebay.com/ws/api.dll';
+
+const ebayHeaders = (callName) => ({
+  'X-EBAY-API-SITEID': '0',
+  'X-EBAY-API-COMPATIBILITY-LEVEL': '1421',
+  'X-EBAY-API-IAF-TOKEN': EBAY_TOKEN,
+  'X-EBAY-API-CALL-NAME': callName,
+});
+
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// ── eBay OAuth token cache ──
+let browseTokenCache = null;
+
+async function getEbayBrowseToken() {
+  if (browseTokenCache && Date.now() < browseTokenCache.expiry) return browseTokenCache.token;
+
+  const credentials = Buffer.from(`${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}`).toString('base64');
+  const resp = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: 'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',
+  });
+  const data = await resp.json();
+  if (!resp.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || 'OAuth token request failed');
+  }
+  browseTokenCache = {
+    token: data.access_token,
+    expiry: Date.now() + (data.expires_in - 300) * 1000,
+  };
+  return data.access_token;
+}
+
+// ── Test eBay token ──
+app.get('/api/ebay/test-token', async (req, res) => {
+  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+
+  const xml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<GetUserRequest xmlns="urn:ebay:apis:eBLBaseComponents">',
+    '  <ErrorLanguage>en_US</ErrorLanguage>',
+    '</GetUserRequest>',
+  ].join('\n');
+
+  try {
+    const response = await fetch(EBAY_API_URL, {
+      method: 'POST',
+      headers: { ...ebayHeaders('GetUser'), 'Content-Type': 'text/xml' },
+      body: xml,
+    });
+    const text = await response.text();
+    const ackMatch = text.match(/<Ack>([^<]+)<\/Ack>/);
+    const userMatch = text.match(/<UserID>([^<]+)<\/UserID>/);
+    const errMatch = text.match(/<LongMessage>([^<]+)<\/LongMessage>/);
+
+    if (ackMatch && (ackMatch[1] === 'Success' || ackMatch[1] === 'Warning')) {
+      res.json({ success: true, userId: userMatch?.[1] || 'unknown' });
+    } else {
+      res.json({ success: false, error: errMatch?.[1] || 'Unknown error' });
+    }
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ── Upload image to eBay ──
+app.post('/api/ebay/upload-image', async (req, res) => {
+  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+
+  const { base64, filename, mimeType } = req.body;
+  const imageBuffer = Buffer.from(base64, 'base64');
+  const boundary = 'MIME_boundary_' + Date.now();
+
+  const xmlPayload = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<UploadSiteHostedPicturesRequest xmlns="urn:ebay:apis:eBLBaseComponents">',
+    `  <PictureName>${escapeXml(filename || 'image')}</PictureName>`,
+    '  <PictureSet>Supersize</PictureSet>',
+    '</UploadSiteHostedPicturesRequest>',
+  ].join('\n');
+
+  const mime = mimeType || 'image/jpeg';
+  const parts = [
+    `--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="XML Payload"\r\n`,
+    `Content-Type: text/xml\r\n\r\n`,
+    xmlPayload,
+    `\r\n--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="image"; filename="${filename || 'image.jpg'}"\r\n`,
+    `Content-Type: ${mime}\r\n`,
+    `Content-Transfer-Encoding: binary\r\n\r\n`,
+  ];
+
+  const textBefore = Buffer.from(parts.join(''), 'utf-8');
+  const textAfter = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
+  const body = Buffer.concat([textBefore, imageBuffer, textAfter]);
+
+  try {
+    const response = await fetch(EBAY_API_URL, {
+      method: 'POST',
+      headers: {
+        ...ebayHeaders('UploadSiteHostedPictures'),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+    });
+    const text = await response.text();
+    const urlMatch = text.match(/<FullURL>([^<]+)<\/FullURL>/);
+    const ackMatch = text.match(/<Ack>([^<]+)<\/Ack>/);
+
+    if (urlMatch && ackMatch && (ackMatch[1] === 'Success' || ackMatch[1] === 'Warning')) {
+      res.json({ success: true, url: urlMatch[1] });
+    } else {
+      const errMsg = text.match(/<LongMessage>([^<]+)<\/LongMessage>/);
+      res.json({ success: false, error: errMsg ? errMsg[1] : 'Upload failed' });
+    }
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ── Seller business policy IDs ──
+const SELLER_POLICIES = {
+  payment: '61837856022',
+  returnPolicy: '65785240022',
+  shipping: [
+    { id: '80178979022', name: 'Main Shipping Policy (Free Standard)', default: true },
+    { id: '338880480022', name: 'Main Shipping Policy Copy' },
+    { id: '383110741022', name: 'Buyer Pays - Small Items' },
+    { id: '383110975022', name: 'Buyer Pays - Medium Items' },
+    { id: '383111232022', name: 'Buyer Pays - Large Items' },
+    { id: '384692198022', name: 'Buyer Pays - X-Large Items' },
+    { id: '385250446022', name: 'Buyer Pays - XX-Large Items' },
+    { id: '338881134022', name: 'Overweight Shipping Policy' },
+    { id: '301209796022', name: 'Local Pickup' },
+  ],
+  returnPolicies: [
+    { id: '30day', name: 'Main Return Policy (30 Day)', default: true,
+      accepted: 'ReturnsAccepted', within: 'Days_30', paidBy: 'Buyer' },
+    { id: '60day', name: 'Cisco 60 Days Return',
+      accepted: 'ReturnsAccepted', within: 'Days_60', paidBy: 'Buyer' },
+    { id: '30day-free', name: 'Free 30 Day Money Back / Replacement',
+      accepted: 'ReturnsAccepted', within: 'Days_30', paidBy: 'Seller' },
+    { id: 'none', name: 'No Returns',
+      accepted: 'ReturnsNotAccepted', within: null, paidBy: null },
+    { id: 'doa', name: 'Dead on Arrival',
+      accepted: 'ReturnsAccepted', within: 'Days_14', paidBy: 'Seller' },
+  ],
+};
+
+app.get('/api/ebay/policies', (req, res) => {
+  res.json(SELLER_POLICIES);
+});
+
+// ── Add item listing ──
+app.post('/api/ebay/add-item', async (req, res) => {
+  if (!EBAY_TOKEN) return res.json({ success: false, error: 'eBay token not configured in .env' });
+
+  const {
+    title, description, price, categoryId,
+    conditionId, pictureUrls, quantity, location,
+    sku, itemSpecifics, shippingPolicyId, returnPolicyId,
+  } = req.body;
+
+  // Validate category via Trading API GetCategories
+  let validCategoryId = categoryId;
+  try {
+    const catXml = [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<GetCategoriesRequest xmlns="urn:ebay:apis:eBLBaseComponents">',
+      '  <ErrorLanguage>en_US</ErrorLanguage>',
+      `  <CategoryID>${escapeXml(String(categoryId))}</CategoryID>`,
+      '  <CategorySiteID>0</CategorySiteID>',
+      '  <DetailLevel>ReturnAll</DetailLevel>',
+      '  <ViewAllNodes>true</ViewAllNodes>',
+      '  <LevelLimit>1</LevelLimit>',
+      '</GetCategoriesRequest>',
+    ].join('\n');
+    const catResp = await fetch(EBAY_API_URL, {
+      method: 'POST',
+      headers: { ...ebayHeaders('GetCategories'), 'Content-Type': 'text/xml' },
+      body: catXml,
+    });
+    const catText = await catResp.text();
+    const leafMatch = catText.match(/<LeafCategory>([^<]+)<\/LeafCategory>/);
+    const expiredMatch = catText.match(/<Expired>true<\/Expired>/);
+
+    if (expiredMatch) {
+      const catIdMatches = [...catText.matchAll(/<CategoryID>([^<]+)<\/CategoryID>/g)];
+      const newCatId = catIdMatches.length > 1 ? catIdMatches[catIdMatches.length - 1][1] : null;
+      if (newCatId && newCatId !== categoryId) {
+        validCategoryId = newCatId;
+      }
+    }
+    if (leafMatch && leafMatch[1] === 'false' && !expiredMatch) {
+      return res.json({ success: false, error: `Category ${categoryId} is not a leaf category. Please choose a more specific sub-category.` });
+    }
+  } catch (e) { /* proceed if validation fails */ }
+
+  const pictureUrlsXml = pictureUrls.map(u => `      <PictureURL>${escapeXml(u)}</PictureURL>`).join('\n');
+
+  let itemSpecificsXml = '';
+  if (itemSpecifics && Object.keys(itemSpecifics).length > 0) {
+    const pairs = Object.entries(itemSpecifics)
+      .filter(([, v]) => v && String(v).trim())
+      .map(([name, value]) => [
+        '      <NameValueList>',
+        `        <Name>${escapeXml(name)}</Name>`,
+        `        <Value>${escapeXml(String(value))}</Value>`,
+        '      </NameValueList>',
+      ].join('\n'));
+    if (pairs.length > 0) {
+      itemSpecificsXml = `    <ItemSpecifics>\n${pairs.join('\n')}\n    </ItemSpecifics>`;
+    }
+  }
+
+  const shipId = shippingPolicyId || SELLER_POLICIES.shipping[0].id;
+  const payId = SELLER_POLICIES.payment;
+
+  const retPolicy = SELLER_POLICIES.returnPolicies.find(r => r.id === returnPolicyId)
+    || SELLER_POLICIES.returnPolicies.find(r => r.default)
+    || SELLER_POLICIES.returnPolicies[0];
+
+  const returnPolicyXml = [
+    '    <ReturnPolicy>',
+    `      <ReturnsAcceptedOption>${retPolicy.accepted}</ReturnsAcceptedOption>`,
+    retPolicy.within ? `      <ReturnsWithinOption>${retPolicy.within}</ReturnsWithinOption>` : null,
+    retPolicy.paidBy ? `      <ShippingCostPaidByOption>${retPolicy.paidBy}</ShippingCostPaidByOption>` : null,
+    '    </ReturnPolicy>',
+  ].filter(Boolean).join('\n');
+
+  const xml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">',
+    '  <ErrorLanguage>en_US</ErrorLanguage>',
+    '  <WarningLevel>High</WarningLevel>',
+    '  <Item>',
+    `    <Title>${escapeXml(title.substring(0, 80))}</Title>`,
+    sku ? `    <SKU>${escapeXml(sku)}</SKU>` : null,
+    `    <Description><![CDATA[${description}]]></Description>`,
+    '    <PrimaryCategory>',
+    `      <CategoryID>${escapeXml(String(validCategoryId))}</CategoryID>`,
+    '    </PrimaryCategory>',
+    `    <StartPrice currencyID="USD">${parseFloat(price).toFixed(2)}</StartPrice>`,
+    `    <ConditionID>${escapeXml(String(conditionId))}</ConditionID>`,
+    '    <Country>US</Country>',
+    '    <Currency>USD</Currency>',
+    `    <Location>${escapeXml(location || 'United States')}</Location>`,
+    '    <DispatchTimeMax>3</DispatchTimeMax>',
+    '    <ListingDuration>GTC</ListingDuration>',
+    '    <ListingType>FixedPriceItem</ListingType>',
+    `    <Quantity>${parseInt(quantity) || 1}</Quantity>`,
+    '    <PictureDetails>',
+    pictureUrlsXml,
+    '    </PictureDetails>',
+    itemSpecificsXml,
+    returnPolicyXml,
+    '    <SellerProfiles>',
+    '      <SellerShippingProfile>',
+    `        <ShippingProfileID>${escapeXml(shipId)}</ShippingProfileID>`,
+    '      </SellerShippingProfile>',
+    '      <SellerPaymentProfile>',
+    `        <PaymentProfileID>${escapeXml(payId)}</PaymentProfileID>`,
+    '      </SellerPaymentProfile>',
+    '    </SellerProfiles>',
+    '  </Item>',
+    '</AddItemRequest>',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const response = await fetch(EBAY_API_URL, {
+      method: 'POST',
+      headers: {
+        ...ebayHeaders('AddItem'),
+        'Content-Type': 'text/xml',
+      },
+      body: xml,
+    });
+    const text = await response.text();
+
+    const ackMatch = text.match(/<Ack>([^<]+)<\/Ack>/);
+    const itemIdMatch = text.match(/<ItemID>([^<]+)<\/ItemID>/);
+    const feesBlock = text.match(/<Fees>([\s\S]*?)<\/Fees>/);
+
+    let totalFees = '';
+    if (feesBlock) {
+      const feeMatch = feesBlock[1].match(/<Name>ListingFee<\/Name>\s*<Fee[^>]*>([^<]+)<\/Fee>/);
+      if (feeMatch) totalFees = feeMatch[1];
+    }
+
+    if (ackMatch && (ackMatch[1] === 'Success' || ackMatch[1] === 'Warning') && itemIdMatch) {
+      res.json({ success: true, itemId: itemIdMatch[1], fees: totalFees });
+    } else {
+      const allErrors = [];
+      const errRegex = /<LongMessage>([^<]+)<\/LongMessage>/g;
+      let em;
+      while ((em = errRegex.exec(text)) !== null) allErrors.push(em[1]);
+      res.json({
+        success: false,
+        error: allErrors.length > 0 ? allErrors.join(' | ') : 'Listing failed',
+      });
+    }
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ── OpenAI proxy ──
+app.post('/api/openai/chat', async (req, res) => {
+  if (!OPENAI_API_KEY) return res.status(400).json({ error: { message: 'OpenAI API key not configured in .env' } });
+
+  const { messages, temperature, max_completion_tokens } = req.body;
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages,
+        temperature: temperature ?? 0.7,
+        max_completion_tokens: max_completion_tokens ?? 4000,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return res.status(resp.status).json(data);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+// ── Item aspects for a category via Taxonomy API ──
+app.get('/api/ebay/item-aspects', async (req, res) => {
+  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+
+  const { category_id } = req.query;
+  if (!category_id) return res.json({ success: false, error: 'Missing category_id' });
+
+  try {
+    const token = await getEbayBrowseToken();
+    const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id=${encodeURIComponent(category_id)}`;
+
+    const resp = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      return res.json({ success: false, error: data.errors?.[0]?.longMessage || `Taxonomy API error ${resp.status}` });
+    }
+
+    const aspects = (data.aspects || []).map(a => ({
+      name: a.localizedAspectName,
+      required: a.aspectConstraint?.aspectRequired || false,
+      mode: a.aspectConstraint?.aspectMode || 'FREE_TEXT',
+      values: (a.aspectValues || []).map(v => v.localizedValue),
+    }));
+
+    res.json({ success: true, aspects });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ── Category suggestions via Taxonomy API ──
+app.get('/api/ebay/category-suggestions', async (req, res) => {
+  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+
+  const { q } = req.query;
+  if (!q) return res.json({ success: false, error: 'Missing search query (q)' });
+
+  try {
+    const token = await getEbayBrowseToken();
+    const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q=${encodeURIComponent(q)}`;
+
+    const resp = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      return res.json({ success: false, error: data.errors?.[0]?.longMessage || data.errors?.[0]?.message || `Taxonomy API error ${resp.status}` });
+    }
+
+    const rawSuggestions = (data.categorySuggestions || []).map(s => {
+      const ancestors = (s.categoryTreeNodeAncestors || [])
+        .sort((a, b) => a.categoryTreeNodeLevel - b.categoryTreeNodeLevel)
+        .map(a => a.categoryName);
+      const pathStr = [...ancestors, s.category.categoryName].join(' > ');
+      return { id: s.category.categoryId, name: s.category.categoryName, path: pathStr };
+    });
+
+    res.json({ success: true, suggestions: rawSuggestions });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ── Price range lookup via Browse API ──
+app.get('/api/ebay/price-range', async (req, res) => {
+  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return res.json({ success: false, error: 'eBay OAuth credentials not configured in .env' });
+
+  const { q, category_id } = req.query;
+  if (!q) return res.json({ success: false, error: 'Missing search query (q)' });
+
+  try {
+    const token = await getEbayBrowseToken();
+
+    let url = `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&filter=priceCurrency:USD&sort=price&limit=200`;
+    if (category_id) url += `&category_ids=${encodeURIComponent(category_id)}`;
+
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+      },
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      return res.json({ success: false, error: data.errors?.[0]?.longMessage || data.errors?.[0]?.message || `Browse API error ${resp.status}` });
+    }
+
+    const items = data.itemSummaries || [];
+    if (items.length === 0) {
+      return res.json({ success: true, count: 0, low: null, high: null, avg: null, median: null });
+    }
+
+    const prices = items
+      .map(item => parseFloat(item.price?.value))
+      .filter(p => !isNaN(p) && p > 0)
+      .sort((a, b) => a - b);
+
+    if (prices.length === 0) {
+      return res.json({ success: true, count: 0, low: null, high: null, avg: null, median: null });
+    }
+
+    const low = prices[0];
+    const high = prices[prices.length - 1];
+    const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
+    const mid = Math.floor(prices.length / 2);
+    const median = prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+
+    res.json({
+      success: true,
+      count: prices.length,
+      low: +low.toFixed(2),
+      high: +high.toFixed(2),
+      avg: +avg.toFixed(2),
+      median: +median.toFixed(2),
+    });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`\n  ListIQ running at http://localhost:${PORT}\n`);
+});
