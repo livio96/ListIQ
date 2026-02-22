@@ -468,6 +468,75 @@
     .modal-status { font-size: 12px; color: #8b8fa3; }
     .modal-status a { color: #4f6ef7; text-decoration: none; }
 
+    /* ══════════════════════════════════════
+       Vision Toggle & Image Upload
+       ══════════════════════════════════════ */
+    .vision-toggle-row {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
+      padding-bottom: 16px; border-bottom: 1px solid #e5e7eb;
+    }
+    .vision-toggle-row label {
+      font-size: 13px; font-weight: 600; color: #1a1a2e; cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .toggle-switch {
+      position: relative; width: 44px; height: 24px; flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: #d1d5db; border-radius: 24px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; left: 3px; top: 3px;
+      width: 18px; height: 18px; background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #4f6ef7; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+    .vision-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; padding: 3px 8px; border-radius: 6px;
+      background: #eef1ff; color: #4f6ef7;
+    }
+
+    .vision-upload-area { display: none; margin-top: 16px; }
+    .vision-upload-area.active { display: block; }
+    .vision-dropzone {
+      border: 2px dashed #cbd5e1; border-radius: 14px; padding: 40px 24px;
+      text-align: center; cursor: pointer; transition: all 0.2s;
+      background: #f8f9fb; margin-bottom: 16px;
+    }
+    .vision-dropzone:hover, .vision-dropzone.dragover {
+      border-color: #4f6ef7; background: #eef1ff;
+    }
+    .vision-dropzone-icon { font-size: 36px; color: #8b8fa3; margin-bottom: 8px; }
+    .vision-dropzone-text { font-size: 14px; font-weight: 600; color: #555b6e; margin-bottom: 4px; }
+    .vision-dropzone-hint { font-size: 12px; color: #8b8fa3; }
+
+    .vision-image-grid {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .vision-thumb-wrap {
+      position: relative; display: inline-block;
+    }
+    .vision-thumb {
+      width: 90px; height: 90px; border-radius: 10px; object-fit: cover;
+      border: 2px solid #e5e7eb; background: #f0f1f3;
+    }
+    .vision-thumb-remove {
+      position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
+      background: #ef4444; border: 2px solid #fff; border-radius: 50%;
+      color: #fff; font-size: 13px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.15s; line-height: 1;
+    }
+    .vision-thumb-wrap:hover .vision-thumb-remove { opacity: 1; }
+
+    .vision-actions {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    }
+
     @media (max-width: 900px) {
       .container { padding: 16px; }
       .product-table thead { display: none; }
@@ -488,17 +557,50 @@
     <!-- Product Input Form -->
     <div class="input-section">
       <h2>Add Product</h2>
-      <div class="input-form">
-        <div class="input-field">
-          <label>Brand <span style="color:#ef4444;">*</span></label>
-          <input type="text" id="brandInput" placeholder="e.g. Cisco, Dell, Apple" autocomplete="off">
-        </div>
-        <div class="input-field">
-          <label>Manufacturer Part Number (MPN) <span style="color:#ef4444;">*</span></label>
-          <input type="text" id="mpnInput" placeholder="e.g. SG350-28P, A2338" autocomplete="off">
-        </div>
-        <button class="btn btn-primary" id="addProductBtn">Add Product</button>
+
+      <!-- Vision Toggle -->
+      <div class="vision-toggle-row">
+        <label>
+          <span class="toggle-switch">
+            <input type="checkbox" id="visionToggle">
+            <span class="toggle-slider"></span>
+          </span>
+          Switch to Google Vision AI
+        </label>
+        <span class="vision-badge" id="visionBadge" style="display:none;">Vision Mode</span>
       </div>
+
+      <!-- Manual input (default) -->
+      <div id="manualInputArea">
+        <div class="input-form">
+          <div class="input-field">
+            <label>Brand <span style="color:#ef4444;">*</span></label>
+            <input type="text" id="brandInput" placeholder="e.g. Cisco, Dell, Apple" autocomplete="off">
+          </div>
+          <div class="input-field">
+            <label>Manufacturer Part Number (MPN) <span style="color:#ef4444;">*</span></label>
+            <input type="text" id="mpnInput" placeholder="e.g. SG350-28P, A2338" autocomplete="off">
+          </div>
+          <button class="btn btn-primary" id="addProductBtn">Add Product</button>
+        </div>
+      </div>
+
+      <!-- Vision image upload -->
+      <div class="vision-upload-area" id="visionUploadArea">
+        <div class="vision-dropzone" id="visionDropzone">
+          <div class="vision-dropzone-icon">&#128247;</div>
+          <div class="vision-dropzone-text">Drop product images here or click to browse</div>
+          <div class="vision-dropzone-hint">Upload one or more images of the product. Google Vision AI will identify the brand and item.</div>
+        </div>
+        <input type="file" id="visionFileInput" accept="image/*" multiple style="display:none;">
+        <div class="vision-image-grid" id="visionImageGrid"></div>
+        <div class="vision-actions">
+          <button class="btn btn-primary" id="visionFindBtn" disabled>Find Item</button>
+          <button class="btn btn-secondary btn-sm" id="visionClearBtn" style="display:none;">Clear All</button>
+          <span class="status-text" id="visionStatus"></span>
+        </div>
+      </div>
+
       <div class="status-text" id="statusText"></div>
     </div>
 
@@ -561,6 +663,389 @@
     let currentModalIndex = -1;
 
     // ═══════════════════════════════════════
+    //  Vision Mode Toggle & Image Upload
+    // ═══════════════════════════════════════
+    const visionToggle = document.getElementById('visionToggle');
+    const visionBadge = document.getElementById('visionBadge');
+    const manualInputArea = document.getElementById('manualInputArea');
+    const visionUploadArea = document.getElementById('visionUploadArea');
+    const visionDropzone = document.getElementById('visionDropzone');
+    const visionFileInput = document.getElementById('visionFileInput');
+    const visionImageGrid = document.getElementById('visionImageGrid');
+    const visionFindBtn = document.getElementById('visionFindBtn');
+    const visionClearBtn = document.getElementById('visionClearBtn');
+    const visionStatus = document.getElementById('visionStatus');
+
+    let visionImages = []; // { file, dataUrl, base64 }
+
+    visionToggle.addEventListener('change', () => {
+      const on = visionToggle.checked;
+      manualInputArea.style.display = on ? 'none' : 'block';
+      visionUploadArea.classList.toggle('active', on);
+      visionBadge.style.display = on ? 'inline-block' : 'none';
+    });
+
+    // Dropzone events
+    visionDropzone.addEventListener('click', () => visionFileInput.click());
+    visionDropzone.addEventListener('dragover', (e) => { e.preventDefault(); visionDropzone.classList.add('dragover'); });
+    visionDropzone.addEventListener('dragleave', () => visionDropzone.classList.remove('dragover'));
+    visionDropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      visionDropzone.classList.remove('dragover');
+      handleVisionFiles(e.dataTransfer.files);
+    });
+    visionFileInput.addEventListener('change', () => {
+      handleVisionFiles(visionFileInput.files);
+      visionFileInput.value = '';
+    });
+
+    function handleVisionFiles(files) {
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target.result;
+          const base64 = dataUrl.split(',')[1];
+          visionImages.push({ file, dataUrl, base64 });
+          renderVisionThumbs();
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+
+    function renderVisionThumbs() {
+      visionImageGrid.innerHTML = '';
+      visionImages.forEach((img, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'vision-thumb-wrap';
+        wrap.innerHTML = `
+          <img class="vision-thumb" src="${img.dataUrl}" alt="">
+          <button class="vision-thumb-remove" data-idx="${idx}">&times;</button>
+        `;
+        wrap.querySelector('.vision-thumb-remove').addEventListener('click', () => {
+          visionImages.splice(idx, 1);
+          renderVisionThumbs();
+        });
+        visionImageGrid.appendChild(wrap);
+      });
+      visionFindBtn.disabled = visionImages.length === 0;
+      visionClearBtn.style.display = visionImages.length > 0 ? 'inline-flex' : 'none';
+    }
+
+    visionClearBtn.addEventListener('click', () => {
+      visionImages = [];
+      renderVisionThumbs();
+      visionStatus.textContent = '';
+    });
+
+    // ── Claude Opus image identification fallback ──
+    async function identifyWithClaude(item) {
+      // Send up to 3 images to Claude for identification
+      const imagesToSend = item.images.slice(0, 3);
+
+      const contentBlocks = [];
+      for (const img of imagesToSend) {
+        const mimeType = img.file?.type || 'image/jpeg';
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mimeType,
+            data: img.base64,
+          },
+        });
+      }
+
+      const labelsHint = item.labels?.length > 0 ? `\nVision detected labels: ${item.labels.join(', ')}` : '';
+      const entitiesHint = item.webEntities?.length > 0 ? `\nVision detected web entities: ${item.webEntities.join(', ')}` : '';
+
+      contentBlocks.push({
+        type: 'text',
+        text: `Identify this product from the image(s). I need the exact product identification for an eBay listing.${labelsHint}${entitiesHint}
+
+Respond with ONLY a JSON object in this exact format, no markdown, no code blocks, no explanation:
+{"productName": "Full Product Name", "brand": "Brand Name", "mpn": "Model or Part Number"}
+
+If you can identify the specific model/part number, include it. If you can only identify the brand and general product type, that's fine — leave mpn as empty string.`,
+      });
+
+      const resp = await fetch(CLAUDE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              content: contentBlocks,
+            },
+          ],
+          temperature: 0.3,
+          max_tokens: 500,
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error?.message || `Claude error ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const raw = data.choices?.[0]?.message?.content || '';
+
+      let jsonStr = raw.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+
+      const result = JSON.parse(jsonStr);
+      return {
+        productName: result.productName || '',
+        brand: result.brand || '',
+        mpn: result.mpn || '',
+      };
+    }
+
+    // ── Find Item with Google Vision ──
+    visionFindBtn.addEventListener('click', analyzeWithVision);
+
+    async function analyzeWithVision() {
+      if (visionImages.length === 0) return;
+
+      visionFindBtn.disabled = true;
+      visionFindBtn.textContent = 'Analyzing...';
+      visionStatus.innerHTML = '<span class="spinner"></span>Sending images to Google Vision AI...';
+
+      try {
+        const requests = visionImages.map(img => ({
+          image: { content: img.base64 },
+          features: [
+            { type: 'LABEL_DETECTION', maxResults: 15 },
+            { type: 'WEB_DETECTION', maxResults: 10 },
+            { type: 'LOGO_DETECTION', maxResults: 5 },
+            { type: 'OBJECT_LOCALIZATION', maxResults: 5 },
+          ],
+        }));
+
+        const resp = await fetch('/api/vision/annotate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error?.message || `Vision API error ${resp.status}`);
+        }
+
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error.message || 'Vision API error');
+
+        visionStatus.innerHTML = '<span class="spinner"></span>Identifying products...';
+
+        // Parse Vision responses
+        const analyzed = data.responses.map((res, i) => ({
+          index: i,
+          img: visionImages[i],
+          response: res,
+          bestGuess: res.webDetection?.bestGuessLabels?.[0]?.label || '',
+          labels: new Set((res.labelAnnotations || []).map(l => l.description.toLowerCase())),
+          webEntities: new Set((res.webDetection?.webEntities || []).filter(e => e.description).map(e => e.description.toLowerCase())),
+          logos: new Set((res.logoAnnotations || []).map(l => l.description.toLowerCase())),
+          objects: new Set((res.localizedObjectAnnotations || []).map(o => o.name.toLowerCase())),
+          webEntityScores: new Map((res.webDetection?.webEntities || []).filter(e => e.description).map(e => [e.description.toLowerCase(), e.score || 0])),
+        }));
+
+        // Log for debugging
+        analyzed.forEach((a, i) => {
+          console.log(`[Vision] Image ${i}:`, {
+            bestGuess: a.bestGuess,
+            labels: [...a.labels],
+            webEntities: [...a.webEntities],
+            logos: [...a.logos],
+            objects: [...a.objects],
+          });
+        });
+
+        // Cluster similar images using Union-Find
+        const parent = analyzed.map((_, i) => i);
+        function find(x) { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+        function union(a, b) { parent[find(a)] = find(b); }
+
+        function jaccard(setA, setB) {
+          if (setA.size === 0 && setB.size === 0) return 0;
+          let inter = 0;
+          for (const v of setA) if (setB.has(v)) inter++;
+          return inter / (setA.size + setB.size - inter);
+        }
+
+        for (let i = 0; i < analyzed.length; i++) {
+          for (let j = i + 1; j < analyzed.length; j++) {
+            const a = analyzed[i], b = analyzed[j];
+            let sim = jaccard(a.labels, b.labels) * 0.3
+                    + jaccard(a.webEntities, b.webEntities) * 0.3
+                    + jaccard(a.objects, b.objects) * 0.1
+                    + jaccard(a.logos, b.logos) * 0.1;
+            if (a.bestGuess && b.bestGuess && a.bestGuess.toLowerCase() === b.bestGuess.toLowerCase()) sim += 0.05;
+            const sharedLogos = [...a.logos].filter(l => b.logos.has(l));
+            if (sharedLogos.length > 0) sim += 0.1;
+            if (sim >= 0.3) union(i, j);
+          }
+        }
+
+        // Group by cluster
+        const clusters = {};
+        analyzed.forEach((a, i) => {
+          const root = find(i);
+          if (!clusters[root]) clusters[root] = [];
+          clusters[root].push(a);
+        });
+
+        // Generic labels to filter out
+        const genericLabels = new Set([
+          'product', 'electronics', 'technology', 'gadget', 'device', 'hardware',
+          'font', 'logo', 'rectangle', 'text', 'brand', 'photo', 'image', 'picture',
+          'material property', 'electric blue', 'automotive exterior',
+        ]);
+
+        // Name each cluster
+        const identified = Object.values(clusters).map(group => {
+          const allScores = new Map();
+          const allLabels = new Set();
+          const allLogos = new Set();
+          const allObjects = new Set();
+          let bestGuess = '';
+
+          group.forEach(a => {
+            a.webEntityScores.forEach((score, name) => {
+              allScores.set(name, Math.max(allScores.get(name) || 0, score));
+            });
+            a.labels.forEach(l => allLabels.add(l));
+            a.logos.forEach(l => allLogos.add(l));
+            a.objects.forEach(o => allObjects.add(o));
+            if (!bestGuess && a.bestGuess) bestGuess = a.bestGuess;
+          });
+
+          // Naming priority
+          let productName = '';
+          let brand = '';
+
+          // 1. High-confidence web entity (score >= 0.7)
+          const highConf = [...allScores.entries()]
+            .filter(([name, score]) => score >= 0.7 && !genericLabels.has(name))
+            .sort((a, b) => b[1] - a[1]);
+          if (highConf.length > 0) {
+            productName = highConf[0][0];
+          }
+          // 2. Best guess
+          else if (bestGuess && !genericLabels.has(bestGuess.toLowerCase())) {
+            productName = bestGuess;
+          }
+          // 3. Medium-confidence web entity (score >= 0.4)
+          else {
+            const medConf = [...allScores.entries()]
+              .filter(([name, score]) => score >= 0.4 && !genericLabels.has(name))
+              .sort((a, b) => b[1] - a[1]);
+            if (medConf.length > 0) {
+              productName = medConf[0][0];
+            }
+            // 4. Logo + top label
+            else if (allLogos.size > 0) {
+              const topLabel = [...allLabels].find(l => !genericLabels.has(l)) || '';
+              productName = [...allLogos][0] + (topLabel ? ' ' + topLabel : '');
+            }
+            // 5. Top non-generic label
+            else {
+              const topLabel = [...allLabels].find(l => !genericLabels.has(l));
+              productName = topLabel || [...allObjects][0] || 'Unknown product';
+            }
+          }
+
+          // Extract brand from logos
+          if (allLogos.size > 0) brand = [...allLogos][0];
+
+          // Capitalize product name nicely
+          productName = productName.replace(/\b\w/g, c => c.toUpperCase());
+          brand = brand.replace(/\b\w/g, c => c.toUpperCase());
+
+          return {
+            productName,
+            brand,
+            images: group.map(a => a.img),
+            labels: [...allLabels].slice(0, 10),
+            webEntities: [...allScores.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]),
+          };
+        });
+
+        console.log('[Vision] Identified products:', identified);
+
+        // ── Claude Opus fallback for unknown/generic products ──
+        const needsClaude = identified.filter(item =>
+          !item.productName ||
+          item.productName.toLowerCase() === 'unknown product' ||
+          genericLabels.has(item.productName.toLowerCase())
+        );
+
+        if (needsClaude.length > 0) {
+          visionStatus.innerHTML = '<span class="spinner"></span>Vision uncertain — asking Claude Opus to identify...';
+
+          for (const item of needsClaude) {
+            try {
+              const result = await identifyWithClaude(item);
+              if (result.productName) item.productName = result.productName;
+              if (result.brand) item.brand = result.brand;
+              if (result.mpn) item.mpn = result.mpn;
+              item._claudeIdentified = true;
+              console.log('[Claude Vision] Identified:', result);
+            } catch (err) {
+              console.error('[Claude Vision] Fallback error:', err);
+            }
+          }
+        }
+
+        // Add identified products to the product list
+        for (const item of identified) {
+          const product = {
+            brand: item.brand || '',
+            mpn: item.mpn || '',
+            productName: item.productName,
+            images: item.images,
+            generatedTitle: null,
+            generatedHtml: null,
+            suggestedCategoryId: null,
+            suggestedCategoryName: null,
+            suggestedBrand: item.brand || '',
+            suggestedType: null,
+            suggestedMpn: item.mpn || '',
+            ebayItemId: null,
+            rejected: false,
+            status: 'pending',
+            _visionLabels: item.labels,
+            _visionWebEntities: item.webEntities,
+            _visionIdentified: true,
+            _claudeIdentified: item._claudeIdentified || false,
+          };
+          products.push(product);
+        }
+
+        renderProductTable();
+
+        const count = identified.length;
+        visionStatus.textContent = `Found ${count} product${count !== 1 ? 's' : ''}. You can now generate listings.`;
+
+        // Clear vision images for next batch
+        visionImages = [];
+        renderVisionThumbs();
+
+      } catch (err) {
+        visionStatus.textContent = `Error: ${err.message}`;
+        console.error('[Vision] Error:', err);
+      }
+
+      visionFindBtn.disabled = visionImages.length === 0;
+      visionFindBtn.textContent = 'Find Item';
+    }
+
+    // ═══════════════════════════════════════
     //  Add Product
     // ═══════════════════════════════════════
     addProductBtn.addEventListener('click', addProduct);
@@ -621,7 +1106,15 @@
 
     function buildRowHtml(ci, meta) {
       const title = meta.generatedTitle || meta.productName;
-      let metaLine = `<span>Brand: ${escapeHtml(meta.brand)}</span><span>MPN: ${escapeHtml(meta.mpn)}</span>`;
+      let metaLine = '';
+      if (meta._visionIdentified) {
+        metaLine = `<span style="color:#4f6ef7;font-weight:600;">Vision AI</span>`;
+        if (meta._claudeIdentified) metaLine += `<span style="color:#7c3aed;font-weight:600;">+ Claude</span>`;
+        if (meta.brand) metaLine += `<span>Brand: ${escapeHtml(meta.brand)}</span>`;
+        if (meta.mpn) metaLine += `<span>MPN: ${escapeHtml(meta.mpn)}</span>`;
+      } else {
+        metaLine = `<span>Brand: ${escapeHtml(meta.brand)}</span><span>MPN: ${escapeHtml(meta.mpn)}</span>`;
+      }
       if (meta.suggestedCategoryName) metaLine += `<span>Cat: ${escapeHtml(meta.suggestedCategoryName)}</span>`;
       if (meta.images.length > 0) metaLine += `<span>${meta.images.length} photo${meta.images.length !== 1 ? 's' : ''}</span>`;
 
@@ -849,7 +1342,9 @@
       meta.status = 'generating';
       updateRow(ci);
 
-      const prompt = buildPrompt(meta.brand, meta.mpn);
+      const prompt = meta._visionIdentified
+        ? buildVisionPrompt(meta)
+        : buildPrompt(meta.brand, meta.mpn);
 
       try {
         const resp = await fetch(OPENAI_URL, {
@@ -873,6 +1368,11 @@
         meta.suggestedBrand = brand || meta.brand;
         meta.suggestedType = type;
         meta.suggestedMpn = mpn || meta.mpn;
+        // For Vision-identified products, update brand/mpn from AI response
+        if (meta._visionIdentified) {
+          if (brand && !meta.brand) meta.brand = brand;
+          if (mpn && !meta.mpn) meta.mpn = mpn;
+        }
 
         // Get verified leaf category from eBay Taxonomy API
         meta._listingProgress = 'Finding best category...';
@@ -920,9 +1420,13 @@
       meta.status = 'verifying';
       updateRow(ci);
 
+      const productLine = meta._visionIdentified
+        ? `Product: ${meta.productName}${meta.brand ? ' | Brand: ' + meta.brand : ''}${meta.mpn ? ' | MPN: ' + meta.mpn : ''}${meta._visionLabels ? ' | Vision Labels: ' + meta._visionLabels.join(', ') : ''}`
+        : `Brand: ${meta.brand} | MPN: ${meta.mpn}`;
+
       const verifyPrompt = `You are a senior eBay listing quality reviewer and SEO specialist. You have been given an existing eBay listing that was generated by another AI. Your job is to VERIFY and ENRICH it — not rewrite it from scratch.
 
-PRODUCT: Brand: ${meta.brand} | MPN: ${meta.mpn}
+PRODUCT: ${productLine}
 CATEGORY: ${meta.suggestedCategoryName || 'Unknown'} (ID: ${meta.suggestedCategoryId || 'Unknown'})
 
 EXISTING TITLE:
@@ -1117,6 +1621,54 @@ CATEGORY_NAME: [The eBay category name for that ID]
 BRAND: [${brand}]
 TYPE: [The specific product type as used in eBay item specifics for this category, e.g. "Managed Switch", "Laptop", "Router". Be specific.]
 MPN: [${mpn}]
+HTML:
+[The full HTML description code]`;
+    }
+
+    function buildVisionPrompt(meta) {
+      const exampleHtml = `<div style="max-width:900px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#222;"><div style="background:#003366;padding:20px 30px;text-align:center;border-radius:8px 8px 0 0;"><h1 style="color:#ffffff;font-size:22px;margin:0;">Cisco SG350-28P 28-Port Gigabit PoE Managed Switch</h1></div><div style="padding:25px 30px;background:#f9f9f9;"><p style="font-size:15px;line-height:1.6;color:#333;">The <strong>Cisco SG350-28P</strong> is a high-performance <strong>28-port Gigabit PoE managed network switch</strong> designed for small to medium businesses.</p><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Key Features</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li><strong>28 Gigabit Ethernet Ports</strong> — 24x PoE+ ports, 2x combo mini-GBIC, 2x SFP</li><li><strong>195W PoE Budget</strong> — Power IP cameras, phones, access points</li><li><strong>Advanced L3 Managed</strong> — Static routing, ACLs, VLAN, QoS</li></ul><h2 style="color:#003366;font-size:17px;border-bottom:2px solid #003366;padding-bottom:6px;">Ideal For</h2><ul style="font-size:14px;line-height:1.8;color:#444;"><li>Small &amp; medium business networks</li><li>VoIP &amp; IP surveillance</li></ul></div><div style="background:#003366;padding:15px 30px;text-align:center;border-radius:0 0 8px 8px;"><p style="color:#ffffff;font-size:13px;margin:0;">Fast Shipping &bull; Professional Packaging &bull; Trusted Seller</p></div></div>`;
+
+      const labelsStr = (meta._visionLabels || []).join(', ');
+      const entitiesStr = (meta._visionWebEntities || []).join(', ');
+
+      return `Create a Cassini-optimized eBay product description (score 10/10) for the specified item. Use the same HTML color structure and styling as the example provided below.
+
+A product has been identified from images using Google Vision AI. Use the detected information to research the EXACT product and create an accurate listing.
+
+DETECTED INFORMATION:
+- Product Name: ${meta.productName}
+${meta.brand ? `- Detected Brand: ${meta.brand}` : ''}
+- Vision Labels: ${labelsStr || 'N/A'}
+- Web Entities: ${entitiesStr || 'N/A'}
+
+IMPORTANT: Based on the detected information above, research this specific product to find:
+1. The exact Brand name
+2. The exact Manufacturer Part Number (MPN) or model number
+3. Accurate specifications and features
+
+Follow these detailed instructions:
+- Use the existing format: header title block, centered image area, feature bullet list, and closing highlights.
+- Do not mention any warranty (express or implied).
+- Use flawless English, clear formatting, and no grammatical errors.
+- Add relevant high-ranking eBay keywords (research and include extra keyword variations and synonyms naturally within the text).
+- Emphasize features, compatibility, and typical use cases.
+- Target both enterprise and individual buyers if applicable.
+- Output should be ready for eBay, HTML included, without placeholder text.
+- Make sure the listing description is 100% unique, well-written, and optimized for visibility and relevance in eBay Cassini search.
+- Never change footer.
+- Description must be copy-paste ready for eBay.
+- Avoid extra \\n in the code.
+
+Here is an example of a well-structured listing:
+${exampleHtml}
+
+IMPORTANT: Your response MUST follow this exact format:
+TITLE: [An eBay-optimized title, max 80 characters, keyword-rich, must include brand and model/MPN]
+CATEGORY_ID: [The most appropriate eBay leaf category ID number. Use a real eBay category ID.]
+CATEGORY_NAME: [The eBay category name for that ID]
+BRAND: [The exact brand name of the product]
+TYPE: [The specific product type as used in eBay item specifics, e.g. "Managed Switch", "Laptop", "Router". Be specific.]
+MPN: [The exact Manufacturer Part Number or model number]
 HTML:
 [The full HTML description code]`;
     }

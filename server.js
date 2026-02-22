@@ -13,6 +13,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
+const GOOGLE_VISION_API_KEY = process.env.GOOGLE_VISION_API_KEY || '';
 
 // ── Serve static files ──
 app.use(express.static(path.join(__dirname)));
@@ -344,6 +345,25 @@ app.post('/api/ebay/add-item', async (req, res) => {
     }
   } catch (err) {
     res.json({ success: false, error: err.message });
+  }
+});
+
+// ── Google Vision proxy ──
+app.post('/api/vision/annotate', async (req, res) => {
+  if (!GOOGLE_VISION_API_KEY) return res.status(400).json({ error: { message: 'Google Vision API key not configured in .env' } });
+
+  const { requests } = req.body;
+  try {
+    const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return res.status(resp.status).json(data);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message } });
   }
 });
 
